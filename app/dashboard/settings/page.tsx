@@ -2,6 +2,7 @@
 
 import React from 'react'
 import ProfileForm from "@/module/settings/actions/components/profile-form";
+import { RepositoryList } from "@/module/settings/components/repository-list";
 
 const SettingPage = () => {
     return (
@@ -11,6 +12,7 @@ const SettingPage = () => {
                 <p className="text-muted-foreground">Manage your account settings and connected repositories.</p>
             </div>
             <ProfileForm />
+            <RepositoryList />
         </div>
     )
 }

@@ -1,9 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ThemeProvider } from "@/components/providers/theme-providers";
-import { QueryProvider } from "@/components/providers/query-provider";
-import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,6 +11,10 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+import { ThemeProvider } from "@/components/providers/theme-providers";
+import { QueryProvider } from "@/components/providers/query-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
     title: "CodeLax - AI Code Reviewer",
@@ -37,11 +38,11 @@ export default function RootLayout({
                     enableSystem
                     disableTransitionOnChange
                 >
-                <Toaster />
+                    {children}
+                    <Toaster />
                 </ThemeProvider>
                 </QueryProvider>
             </body>
         </html>
     );
 }
-
