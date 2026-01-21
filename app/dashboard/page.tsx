@@ -84,16 +84,16 @@ const MainPage = () => {
         <Card>
           <CardHeader>
             <CardTitle>Activity Overview</CardTitle>
-            <CardDescription>Commits breakdown of commits, PRs, and Reviews</CardDescription>
+            <CardDescription>Visualizing your coding frequency over the last year</CardDescription>
           </CardHeader>
           <CardContent>
             {
               isLoadingActivity ? (
-                 <div className="h-80 w-full flex items-center justify-center">
+                 <div className="h-[300px] w-full flex items-center justify-center">
                   <Spinner/>
                  </div>
               ) : (
-              <div className ='h-80 w-full'>
+              <div className="h-[300px] w-full min-h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthlyActivity || []}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -109,7 +109,7 @@ const MainPage = () => {
                     <Bar dataKey="reviews" name="AI Reviews" fill="#10b981" radius={[4,4,0,0]} barSize={52}/>
                   </BarChart>
                 </ResponsiveContainer>
-                </div>
+              </div>
   )
             }
           </CardContent>
