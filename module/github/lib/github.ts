@@ -1,7 +1,16 @@
-import{Octokit} from "octokit";
-import {auth} from "@/lib/auth";
+import { Octokit } from "octokit";
+import { auth } from "@/lib/auth";
 import prisma from "@/lib/db";
 import { headers } from "next/headers";
+
+// Shared factory — sets the API version header to silence deprecation warnings
+export const createOctokit = (token: string) =>
+    new Octokit({
+        auth: token,
+        request: {
+            headers: { "X-GitHub-Api-Version": "2022-11-28" }
+        }
+    });
 
 
 //github access token 
@@ -44,7 +53,7 @@ interface ContributionData {
   }
 
 export async function fetchUserContribution(token: string, username: string) {
-  const octokit = new Octokit({ auth: token });
+  const octokit = createOctokit(token);
 
   const query = `
         query($username:String!){
@@ -80,7 +89,7 @@ export async function fetchUserContribution(token: string, username: string) {
 export const getRepositories = async (page: number = 1, perPage: number = 10) => {
 
     const token = await getGithubToken();
-    const octokit = new Octokit({ auth: token });
+    const octokit = createOctokit(token);
 
     const {data} = await octokit.rest.repos.listForAuthenticatedUser({
         sort: "updated",
@@ -95,7 +104,7 @@ export const getRepositories = async (page: number = 1, perPage: number = 10) =>
 
 export const createWebhook = async (owner:string , repo:string)=>{
     const token = await getGithubToken();
-    const octokit = new Octokit({ auth: token });
+    const octokit = createOctokit(token);
 
     const webhookUrl = `${process.env.NEXT_PUBLIC_APP_BASE_URL}/api/webhooks/github`
 
@@ -114,7 +123,8 @@ export const createWebhook = async (owner:string , repo:string)=>{
         repo,
         config:{
             url:webhookUrl,
-            content_type:"json"
+            content_type:"json",
+            secret: process.env.GITHUB_WEBHOOK_SECRET
         },
         events:["pull_request"]
     });
@@ -124,7 +134,7 @@ export const createWebhook = async (owner:string , repo:string)=>{
 
 export const deleteWebhook = async (owner: string, repo: string) => {
     const token = await getGithubToken();
-    const octokit = new Octokit({ auth: token });
+    const octokit = createOctokit(token);
     const webhookUrl = `${process.env.NEXT_PUBLIC_APP_BASE_URL}/api/webhooks/github`;
 
     try {
@@ -156,15 +166,17 @@ export async function getRepoFileContents(
     repo:string,
     path:string = ""
 ) {
-    const octokit = new Octokit({ auth: token });
+    const octokit = createOctokit(token);
     
     try {
-        console.log(`Fetching contents for: ${owner}/${repo}${path ? '/' + path : ''}`);
-        const {data} = await octokit.rest.repos.getContent({
-            owner,
+        const options: any = { 
+            owner, 
             repo,
-            path
-        });
+            headers: { "X-GitHub-Api-Version": "2022-11-28" }
+        };
+        if (path) options.path = path;
+        
+        const {data} = await octokit.rest.repos.getContent(options);
      if (!Array.isArray(data)){
         if (data.type === "file"&& data.content){
             return [{
@@ -181,7 +193,8 @@ export async function getRepoFileContents(
             const {data:fileData} = await octokit.rest.repos.getContent({
                 owner,
                 repo,
-                path:item.path
+                path:item.path,
+                headers: { "X-GitHub-Api-Version": "2022-11-28" }
             })
              if (!Array.isArray(fileData) && fileData.type === "file" && fileData.content){
                 if(!item.path.match(/\.(png|jpg|jpeg|gif|svg|ico|pdf|zip|tar|gz)$/i)){

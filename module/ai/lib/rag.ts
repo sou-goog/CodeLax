@@ -1,14 +1,15 @@
-import {pineconeIndex} from "@/lib/pinecone";
-import {embed} from "ai";
-import {google} from "@ai-sdk/google";
+import { pineconeIndex } from "@/lib/pinecone";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-export async function generateEmbeddings(text:string) {
-    const {embedding} = await embed ({
-        model:google.textEmbedding("text-embedding-004"),
-        value:text
-    })
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
 
-    return embedding;
+export async function generateEmbeddings(text: string) {
+    const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
+    const result = await model.embedContent({
+        content: { parts: [{ text }], role: "user" },
+        taskType: "RETRIEVAL_DOCUMENT",
+    });
+    return result.embedding.values;
 }
 
 

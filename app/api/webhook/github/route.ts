@@ -1,20 +1,18 @@
-import { NextResponse, NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { inngest } from "@/inngest/client";
 
 // Verify the webhook is genuinely from GitHub
 function verifyGitHubSignature(payload: string, signature: string): boolean {
-  if (!signature) return false;
   const secret = process.env.GITHUB_WEBHOOK_SECRET!;
   const expected = `sha256=${crypto
     .createHmac("sha256", secret)
     .update(payload)
     .digest("hex")}`;
-  const expectedBuf = Buffer.from(expected);
-  const signatureBuf = Buffer.from(signature);
-  // timingSafeEqual requires same length — reject immediately if different
-  if (expectedBuf.length !== signatureBuf.length) return false;
-  return crypto.timingSafeEqual(expectedBuf, signatureBuf);
+  return crypto.timingSafeEqual(
+    Buffer.from(expected),
+    Buffer.from(signature)
+  );
 }
 
 export async function POST(req: NextRequest) {

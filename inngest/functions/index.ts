@@ -25,7 +25,6 @@ export const indexRepo = inngest.createFunction(
         throw new Error("No access token found for github account");
       }
 
-      console.log(`Calling getRepoFileContents with owner: ${owner}, repo: ${repo}`);
       return await getRepoFileContents(account.accessToken , owner , repo)
       })
 

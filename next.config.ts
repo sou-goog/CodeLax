@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
             bodySizeLimit: '2mb',
         },
     },
+    allowedDevOrigins: [
+        "unspiring-ulysses-grubbily.ngrok-free.dev",
+    ],
 };
 
 export default nextConfig;

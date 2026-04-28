@@ -1,6 +1,6 @@
 "use server";
 import {
-    fetchUserContribution, getGithubToken
+    fetchUserContribution, getGithubToken, createOctokit
 } from "@/module/github/lib/github"
 
 import { auth } from "@/lib/auth";
@@ -18,7 +18,7 @@ export async function getContributionStats() {
         }
 
         const token = await getGithubToken();
-        const octokit = new Octokit({ auth: token });
+        const octokit = createOctokit(token);
         const { data: user } = await octokit.rest.users.getAuthenticated();
         const username =user.login;
 
@@ -57,7 +57,7 @@ export async function getDashboardStats() {
         }
 
         const token = await getGithubToken();
-        const octokit = new Octokit({ auth: token })
+        const octokit = createOctokit(token);
 
 
         //github username
@@ -108,7 +108,7 @@ export async function getMonthlyActivity() {
             throw new Error("Unauthorized");
         }
         const token = await getGithubToken();
-        const octokit = new Octokit({ auth: token })
+        const octokit = createOctokit(token);
 
         const { data: user } = await octokit.rest.users.getAuthenticated()
 
