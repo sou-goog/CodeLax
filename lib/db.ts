@@ -6,8 +6,8 @@ const connectionString = process.env.DATABASE_URL;
 
 const pool = new Pool({ 
     connectionString,
-    max: 1, // Keep max=1 for serverless/Next.js environment
-    idleTimeoutMillis: 10000,
+    max: 10,
+    idleTimeoutMillis: 1000, // Very short idle timeout so pg closes it before Neon does
     connectionTimeoutMillis: 10000,
 });
 
