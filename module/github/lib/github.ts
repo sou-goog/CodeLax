@@ -13,6 +13,7 @@ export const createOctokit = (token: string) =>
     });
 
 
+
 //github access token 
 
 export const getGithubToken = async () => {
@@ -264,6 +265,6 @@ export async function postReviewComment(
         owner,
         repo,
         issue_number: prNumber,
-        body: `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by CodeLax *`,
+        body: `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by CodeLax*`,
     });
 }

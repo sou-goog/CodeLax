@@ -1,3 +1,4 @@
+"use server";
 import prisma from "@/lib/db";
 import { getPullRequestDiff } from "@/module/github/lib/github";
 import { inngest } from "@/inngest/client";
