@@ -4,7 +4,13 @@ import { Pool } from "pg";
 
 const connectionString = process.env.DATABASE_URL;
 
-const pool = new Pool({ connectionString });
+const pool = new Pool({
+    connectionString,
+    max: 10,
+    idleTimeoutMillis: 1000,
+    connectionTimeoutMillis: 30000,
+});
+
 const adapter = new PrismaPg(pool);
 
 const prismaClientSingleton = () => {
@@ -15,7 +21,11 @@ declare const globalThis: {
     prismaGlobal: ReturnType<typeof prismaClientSingleton>;
 } & typeof global;
 
-const prisma = globalThis.prismaGlobal || prismaClientSingleton();
+// Force delete stale cache so HMR always picks up the latest generated client
+// @ts-ignore
+delete globalThis.prismaGlobal;
+
+const prisma = globalThis.prismaGlobal ?? prismaClientSingleton();
 
 if (process.env.NODE_ENV !== "production") globalThis.prismaGlobal = prisma;
 
