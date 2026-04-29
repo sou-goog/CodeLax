@@ -1,6 +1,6 @@
-import { NextResponse, NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { inngest } from "@/inngest/client";
+import { reviewPullRequest } from "@/module/ai/actions";
 
 // Verify the webhook is genuinely from GitHub
 function verifyGitHubSignature(payload: string, signature: string): boolean {
@@ -12,7 +12,6 @@ function verifyGitHubSignature(payload: string, signature: string): boolean {
     .digest("hex")}`;
   const expectedBuf = Buffer.from(expected);
   const signatureBuf = Buffer.from(signature);
-  // timingSafeEqual requires same length — reject immediately if different
   if (expectedBuf.length !== signatureBuf.length) return false;
   return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 }
@@ -29,20 +28,20 @@ export async function POST(req: NextRequest) {
   const event = req.headers.get("x-github-event");
   const body = JSON.parse(payload);
 
-  // Only process when a PR is opened or new commits are pushed to it
-  if (event === "pull_request" && ["opened", "synchronize"].includes(body.action)) {
-    await inngest.send({
-      name: "codelax/pr.review.requested",
-      data: {
-        installationId: body.installation.id,
-        repoOwner: body.repository.owner.login,
-        repoName: body.repository.name,
-        prNumber: body.pull_request.number,
-        prTitle: body.pull_request.title,
-        diffUrl: body.pull_request.diff_url,
-        headSha: body.pull_request.head.sha,
-      },
-    });
+  console.log(`Received GitHub event: ${event}`);
+
+  if (event === "pull_request") {
+    const action = body.action;
+    const repo = body.repository.full_name;
+    const prNumber = body.number;
+
+    const [owner, repoName] = repo.split("/");
+
+    if (action === "opened" || action === "synchronize" || action === "reopened") {
+      reviewPullRequest(owner, repoName, prNumber)
+        .then(() => console.log(`Review completed for ${repo} #${prNumber}`))
+        .catch((error) => console.log(`Review failed for ${repo} #${prNumber}:`, error));
+    }
   }
 
   return NextResponse.json({ ok: true });

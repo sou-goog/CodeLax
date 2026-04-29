@@ -8,7 +8,7 @@ const pool = new Pool({
     connectionString,
     max: 10,
     idleTimeoutMillis: 1000, // Very short idle timeout so pg closes it before Neon does
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: 30000, // Give Neon 30 seconds to wake up from cold start
 });
 
 const adapter = new PrismaPg(pool);
@@ -20,6 +20,10 @@ const prismaClientSingleton = () => {
 declare const globalThis: {
     prismaGlobal: ReturnType<typeof prismaClientSingleton>;
 } & typeof global;
+
+// Force delete the cached instance so Next.js HMR creates a brand new one with the latest schema
+// @ts-ignore
+delete globalThis.prismaGlobal;
 
 const prisma = globalThis.prismaGlobal ?? prismaClientSingleton();
 

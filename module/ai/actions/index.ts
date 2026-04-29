@@ -16,7 +16,7 @@ export async function reviewPullRequest(
             include: {
                 user: {
                     include: {
-                        accounts: {
+                        account: {
                             where: {
                                 providerId: "github"
                             }
@@ -30,7 +30,7 @@ export async function reviewPullRequest(
             throw new Error(`Repository ${owner}/${repo} not found in database. Please reconnect the repository.`)
         }
 
-        const githubAccount = repository.user.accounts[0]
+        const githubAccount = repository.user.account[0]
 
         if (!githubAccount?.accessToken) {
             throw new Error("No GitHub access token found for repository owner")
