@@ -1,17 +1,72 @@
 import { NextResponse, NextRequest } from "next/server";
+import { inngest } from "@/inngest/client";
+import prisma from "@/lib/db";
+import crypto from "crypto";
+
+function verifyGitHubSignature(payload: string, signature: string, secret: string): boolean {
+    const hmac = crypto.createHmac("sha256", secret);
+    const digest = "sha256=" + hmac.update(payload).digest("hex");
+    try {
+        return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature));
+    } catch {
+        return false;
+    }
+}
 
 export async function POST(req: NextRequest) {
     try {
-        const body = await req.json();
+        const rawBody = await req.text();
+        const signature = req.headers.get("x-hub-signature-256") ?? "";
         const event = req.headers.get("x-github-event");
 
-        if (event === "ping") {
-            return NextResponse.json({ message: "Pong" }, { status: 200 })
+        // Verify webhook signature only if GitHub sent one
+        const secret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
+        if (secret && signature && !verifyGitHubSignature(rawBody, signature, secret)) {
+            console.error("Invalid webhook signature");
+            return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
         }
 
-        // TODO: HANDLE LATER
+        if (event === "ping") {
+            return NextResponse.json({ message: "Pong" }, { status: 200 });
+        }
 
-        return NextResponse.json({ message: "Event Processes" }, { status: 200 })
+        const body = JSON.parse(rawBody);
+
+        console.log(`Received GitHub event: ${event}, action: ${body.action}`);
+
+        if (event === "pull_request" && ["opened", "synchronize", "reopened"].includes(body.action)) {
+            const owner = body.repository.owner.login;
+            const repo = body.repository.name;
+            const prNumber = body.pull_request.number;
+
+            // Look up the repository + user in DB
+            const repository = await prisma.repository.findFirst({
+                where: { owner, name: repo },
+                include: { user: true }
+            });
+
+            if (!repository) {
+                console.warn(`Repository ${owner}/${repo} not found in DB — skipping review`);
+                return NextResponse.json({ message: "Repository not connected" }, { status: 200 });
+            }
+
+            console.log(`Sending pr.review.requested for ${owner}/${repo} PR#${prNumber}`);
+
+            // Send Inngest event
+            await inngest.send({
+                name: "pr.review.requested",
+                data: {
+                    owner,
+                    repo,
+                    prNumber,
+                    userId: repository.userId,
+                }
+            });
+
+            return NextResponse.json({ message: "Review triggered" }, { status: 200 });
+        }
+
+        return NextResponse.json({ message: "Event received" }, { status: 200 });
     } catch (error) {
         console.error("Error processing webhook:", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
