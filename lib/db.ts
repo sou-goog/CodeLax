@@ -7,7 +7,7 @@ const prismaClientSingleton = () => {
     // The pg adapter crashes with a 'graph' undefined error in Prisma 7 during static evaluation.
     // We conditionally skip the adapter if the URL is missing.
     if (!process.env.DATABASE_URL) {
-        return new PrismaClient();
+        return new PrismaClient({} as any);
     }
     
     const connectionString = process.env.DATABASE_URL;
