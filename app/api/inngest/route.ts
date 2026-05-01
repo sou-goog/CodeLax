@@ -4,6 +4,8 @@ import { indexRepo } from "../../../inngest/functions";
 import { generateReview } from "../../../inngest/functions/review";
 import { generateReviewMultiAgent } from "../../../inngest/functions/multi-agent-review";
 
+export const dynamic = "force-dynamic";
+
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [

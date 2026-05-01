@@ -3,6 +3,8 @@ import { inngest } from "@/inngest/client";
 import prisma from "@/lib/db";
 import crypto from "crypto";
 
+export const dynamic = "force-dynamic";
+
 function verifyGitHubSignature(payload: string, signature: string, secret: string): boolean {
     const hmac = crypto.createHmac("sha256", secret);
     const digest = "sha256=" + hmac.update(payload).digest("hex");
