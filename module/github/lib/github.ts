@@ -4,6 +4,7 @@ import prisma from "@/lib/db";
 import { headers } from "next/headers";
 
 
+
 //github access token 
 
 export const getGithubToken = async () => {
@@ -204,6 +205,62 @@ export async function getRepoFileContents(
         if (error.status === 404) {
             throw new Error(`Repository ${owner}/${repo} not found or access denied. Please verify the repository exists and you have access.`);
         }
+        throw error;
+    }
+}
+
+export async function getPullRequestDiff(
+    token:string,
+    owner:string,
+    repo:string,
+    prNumber:number
+){
+    const octokit = new Octokit({ auth: token });
+    
+    try {
+        const {data:pr} = await octokit.rest.pulls.get({
+            owner,
+            repo,
+            pull_number:prNumber
+    })
+    
+    const {data:diff} = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number:prNumber,
+        mediaType:{
+            format:"diff"
+        }
+    });
+    return {
+        diff: diff as unknown as String,
+        title:pr.title,
+        description: pr.body || "",
+    }
+    } catch (error: any) {
+        console.error(`Error fetching pull request diff for ${owner}/${repo}#${prNumber}:`, error.message);
+        throw error;
+    }
+}
+
+export async function postReviewComment(
+    token:string,
+    owner:string,
+    repo:string,
+    prNumber:number,
+    review:string
+){
+    const octokit = new Octokit({ auth: token });
+    
+    try {
+        await octokit.rest.issues.createComment({
+            owner,
+            repo,
+            issue_number:prNumber,
+            body: `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by CodeLax*`,
+        });
+    } catch (error: any) {
+        console.error(`Error posting review comment for ${owner}/${repo}#${prNumber}:`, error.message);
         throw error;
     }
 }
