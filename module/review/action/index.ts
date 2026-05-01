@@ -9,7 +9,10 @@ export async function getReviews() {
 
     return await prisma.review.findMany({
         where: { repository: { userId: session.user.id } },
-        include: { repository: true },
+        include: { 
+            repository: true,
+            findings: true
+        },
         orderBy: { createdAt: "desc" },
         take: 50
     });

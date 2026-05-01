@@ -37,13 +37,14 @@ model repository {
   owner       String
   fullName    String
   url         String
-  description String?
-  language    String?
-  stars       Int      @default(0)
   userId      String
   createdAt   DateTime @default(now())
   updatedAt   DateTime
+  description String?
+  language    String?
+  stars       Int      @default(0)
   user        user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  review      review[]
 
   @@index([userId])
 }
@@ -84,4 +85,36 @@ model verification {
   updatedAt  DateTime
 
   @@index([identifier])
+}
+
+model review {
+  id           String     @id @default(cuid())
+  repositoryId String
+  prNumber     Int
+  prTitle      String
+  prUrl        String
+  review       String
+  status       String     @default("completed")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  repository   repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  findings     review_finding[]
+
+  @@index([repositoryId])
+}
+
+model review_finding {
+  id          String   @id @default(cuid())
+  reviewId    String
+  review      review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  agentName   String
+  severity    String
+  confidence  Float
+  file        String
+  title       String
+  description String
+  suggestion  String
+  createdAt   DateTime @default(now())
+
+  @@index([reviewId])
 }
