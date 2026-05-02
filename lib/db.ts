@@ -2,21 +2,38 @@ import { PrismaClient } from "./generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
-// Build-time stub: Prisma 7 with engine "client" requires an adapter, so we
-// cannot fall back to `new PrismaClient()`.  Return a Proxy that satisfies
-// the import but throws a clear message if anything actually queries the DB
-// during build (which should never happen for dynamic routes).
+// Build-time / fallback stub: Prisma 7 with engine "client" requires an
+// adapter, so we cannot fall back to `new PrismaClient()`.  Return a deep
+// Proxy that lets module-level code (e.g. prismaAdapter) inspect the
+// client without throwing.  Actual queries will reject with a clear error.
 function buildTimeStub(): PrismaClient {
-    return new Proxy({} as PrismaClient, {
+    const handler: ProxyHandler<object> = {
         get(_, prop) {
-            if (prop === "then" || prop === "$connect" || prop === "$disconnect") {
-                return undefined;
-            }
-            throw new Error(
-                `PrismaClient is not available at build time (accessed .${String(prop)})`
-            );
+            // Prevent Promise-like behaviour
+            if (prop === "then") return undefined;
+            // No-op lifecycle methods
+            if (prop === "$connect" || prop === "$disconnect") return () => Promise.resolve();
+            // Symbol / toJSON / inspect access — return undefined silently
+            if (typeof prop === "symbol" || prop === "toJSON") return undefined;
+            // For any model access (e.g. prisma.user) or method, return a
+            // nested proxy whose methods reject with a descriptive error.
+            return new Proxy(() => {}, {
+                get(__, innerProp) {
+                    if (innerProp === "then") return undefined;
+                    return () =>
+                        Promise.reject(
+                            new Error(`PrismaClient stub: cannot query DB (${String(prop)}.${String(innerProp)})`)
+                        );
+                },
+                apply() {
+                    return Promise.reject(
+                        new Error(`PrismaClient stub: cannot query DB (${String(prop)})`)
+                    );
+                },
+            });
         },
-    });
+    };
+    return new Proxy({} as PrismaClient, handler);
 }
 
 const prismaClientSingleton = () => {
