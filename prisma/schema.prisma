@@ -7,10 +7,6 @@ datasource db {
   provider = "postgresql"
 }
 
-model Test {
-  id String @id
-}
-
 model account {
   id                    String    @id
   accountId             String

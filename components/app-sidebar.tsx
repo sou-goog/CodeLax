@@ -1,6 +1,6 @@
 "use client";
 
-import { Github, BookOpen, Settings, Moon, Sun, LogOut } from "lucide-react"
+import { Github, BookOpen, Settings, Moon, Sun, LogOut, MessageSquare } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
@@ -46,12 +46,7 @@ export const AppSidebar = () => {
         {
             title: "Reviews",
             url: "/dashboard/reviews",
-            icon: BookOpen,
-        },
-        {
-            title: "Subscription",
-            url: "/dashboard/subscription",
-            icon: BookOpen,
+            icon: MessageSquare,
         },
         {
             title: "Settings",
@@ -177,7 +172,7 @@ export const AppSidebar = () => {
                                             )}
                                         </button>
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem className="cursor-pointer px-3 my-1 rounder-md hover:bg-red-500/10 hover:text-red-600 transition-colors font medium">
+                                    <DropdownMenuItem className="cursor-pointer px-3 my-1 rounded-md hover:bg-red-500/10 hover:text-red-600 transition-colors font-medium">
                                         <LogOut className="w-5 h-5 mr-3 shrink-0" />
                                         <Logout>Sign Out</Logout>
                                     </DropdownMenuItem>

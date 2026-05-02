@@ -9,6 +9,7 @@ import { runLogicAgent } from "@/module/ai/agents/logic";
 import { runStyleAgent } from "@/module/ai/agents/style";
 import { runCritic } from "@/module/ai/agents/critic";
 import { runSynthesizer } from "@/module/ai/agents/synthesizer";
+import type { SpecialistReport } from "@/module/ai/agents/types";
 
 export const generateReviewMultiAgent = inngest.createFunction(
   { id: "generate-review-multi-agent", concurrency: 3 },
@@ -52,22 +53,37 @@ export const generateReviewMultiAgent = inngest.createFunction(
       runPlanner(title, description, diff)
     );
 
-    // Step 4: Specialist Agents SEQUENTIALLY with delays to respect the 15 RPM Free Tier limit
-    const security = await step.run("agent-security", () => runSecurityAgent(diff, context, title));
-    await step.sleep("wait-after-security", "10s");
-    
-    const performance = await step.run("agent-performance", () => runPerformanceAgent(diff, context, title));
-    await step.sleep("wait-after-performance", "10s");
-    
-    const logic = await step.run("agent-logic", () => runLogicAgent(diff, context, title));
-    await step.sleep("wait-after-logic", "10s");
-    
-    const style = await step.run("agent-style", () => runStyleAgent(diff, context, title));
-    await step.sleep("wait-after-style", "10s");
+    // Step 4: Run only the agents the planner selected (with delays for rate limiting)
+    const agentsToRun = plan.agentsToActivate || ["security", "performance", "logic", "style"];
+    const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
+      security: () => runSecurityAgent(diff, context, title),
+      performance: () => runPerformanceAgent(diff, context, title),
+      logic: () => runLogicAgent(diff, context, title),
+      style: () => runStyleAgent(diff, context, title),
+    };
+
+    const reports: SpecialistReport[] = [];
+    for (const agentName of agentsToRun) {
+      if (agentRunners[agentName]) {
+        try {
+          const report = await step.run(`agent-${agentName}`, agentRunners[agentName]);
+          reports.push(report);
+        } catch (error) {
+          console.error(`Agent ${agentName} failed, skipping:`, error);
+          reports.push({
+            agentName,
+            findings: [],
+            summary: `Agent ${agentName} failed to analyze this PR.`,
+            analysisNotes: `Error: ${error instanceof Error ? error.message : "Unknown error"}`
+          });
+        }
+        await step.sleep(`wait-after-${agentName}`, "10s");
+      }
+    }
 
     // Step 5: Critic Agent
     const criticReport = await step.run("critic", () =>
-      runCritic([security, performance, logic, style])
+      runCritic(reports)
     );
 
     // Step 6: Synthesizer Agent

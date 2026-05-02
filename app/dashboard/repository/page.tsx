@@ -115,7 +115,7 @@ const RepositoryPage = () => {
                     ): isError ? (
                         <div>Failed to load repositories.</div>
                     ): (
-                        filteredRepositories.map((repo:any) => (
+                        filteredRepositories.map((repo: RepositoryProps) => (
                             <Card key={repo.id} className="hover:shadow-md transition-shadow">
                                 <CardHeader>
                                     <div className="flex items-start justify-between">

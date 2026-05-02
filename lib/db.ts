@@ -3,17 +3,21 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
 const prismaClientSingleton = () => {
-    // During Vercel build, DATABASE_URL might be undefined.
-    // The pg adapter crashes with a 'graph' undefined error in Prisma 7 during static evaluation.
-    // We conditionally skip the adapter if the URL is missing.
     if (!process.env.DATABASE_URL) {
         return new PrismaClient({} as any);
     }
-    
-    const connectionString = process.env.DATABASE_URL;
-    const pool = new Pool({ connectionString });
-    const adapter = new PrismaPg(pool);
-    return new PrismaClient({ adapter });
+
+    // During Vercel build, the PrismaPg adapter can crash with a 'graph' undefined
+    // error when Next.js statically evaluates route modules. Fall back to a plain
+    // client so the build can complete; runtime requests will always have a valid pool.
+    try {
+        const connectionString = process.env.DATABASE_URL;
+        const pool = new Pool({ connectionString });
+        const adapter = new PrismaPg(pool);
+        return new PrismaClient({ adapter });
+    } catch {
+        return new PrismaClient({} as any);
+    }
 };
 
 declare const globalThis: {

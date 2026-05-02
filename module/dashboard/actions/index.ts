@@ -28,8 +28,8 @@ export async function getContributionStats() {
             return null;
         }
 
-        const contributions = calendar.weeks.flatMap((week: any) =>
-            week.contributionDays.map((day: any) => ({
+        const contributions = calendar.weeks.flatMap((week: { contributionDays: { date: string; contributionCount: number }[] }) =>
+            week.contributionDays.map((day) => ({
                 date: day.date,
                 count: day.contributionCount,
                 level: Math.min(4, Math.floor(day.contributionCount / 3)),
@@ -63,24 +63,23 @@ export async function getDashboardStats() {
         //github username
         const { data: user } = await octokit.rest.users.getAuthenticated()
 
-        const totalRepos = 30;
+        const totalRepos = await prisma.repository.count({
+            where: { userId: session.user.id }
+        });
 
         const calendar = await fetchUserContribution(token, user.login);
         const totalCommits = calendar?.totalContributions || 0
 
-        //count pr
         const { data: prs } = await octokit.rest.search.issuesAndPullRequests({
             q: `author:${user.login} type:pr`,
             per_page: 1
-
         })
 
         const totalPRs = prs.total_count;
 
-
-        //todo
-
-        const totalReviews = 44
+        const totalReviews = await prisma.review.count({
+            where: { repository: { userId: session.user.id } }
+        });
 
         return {
             totalCommits,
@@ -138,8 +137,8 @@ export async function getMonthlyActivity() {
             };
 
         }
-        calendar.weeks.forEach((week: any) => {
-            week.contributionDays.forEach((day: any) => {
+        calendar.weeks.forEach((week: { contributionDays: { date: string; contributionCount: number }[] }) => {
+            week.contributionDays.forEach((day) => {
                 const date = new Date(day.date);
                 const monthKey = monthNames[date.getMonth()];
                 if (monthlyData[monthKey]) {
@@ -152,27 +151,13 @@ export async function getMonthlyActivity() {
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-        //todo reviews real data
-        //gen random reviews for 6months
-        const generateSampleReviews = () => {
-            const sampleReviews = [];
-            const now = new Date();
-
-            for (let i = 0; i < 45; i++) {
-                const randomDaysAgo = Math.floor(Math.random() * 180);
-                const reviewDate = new Date(now);
-                reviewDate.setDate(reviewDate.getDate() - randomDaysAgo);
-
-                sampleReviews.push({
-                    createdAt: reviewDate,
-                })
-
-
-            }
-            return sampleReviews;
-        };
-
-        const reviews = generateSampleReviews();
+        const reviews = await prisma.review.findMany({
+            where: {
+                repository: { userId: session.user.id },
+                createdAt: { gte: sixMonthsAgo }
+            },
+            select: { createdAt: true }
+        });
 
         reviews.forEach((review) => {
             const monthKey = monthNames[review.createdAt.getMonth()];
@@ -187,7 +172,7 @@ export async function getMonthlyActivity() {
 
         });
 
-        prs.items.forEach((pr: any) => {
+        prs.items.forEach((pr) => {
             const date = new Date(pr.created_at);
             const monthKey = monthNames[date.getMonth()];
             if (monthlyData[monthKey]) {

@@ -30,7 +30,7 @@ const MainPage = () => {
       <div className='grid gap-4 md:grid-cols-4'>
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Total Respositories</CardTitle>
+            <CardTitle className='text-sm font-medium'>Total Repositories</CardTitle>
             <GitBranch className='h-4 w-4 text-muted-foreground'/>
             </CardHeader>
           <CardContent>
@@ -101,7 +101,7 @@ const MainPage = () => {
                     <YAxis />
                     <Tooltip
                     contentStyle={{backgroundColor:"var(--background)",borderColor:"var(--border)"}}
-                    itemStyle={{color:"var(--foreground"}}
+                    itemStyle={{color:"var(--foreground)"}}
                      />
                     <Legend />
                     <Bar dataKey="commits" name="Commits" fill="#2563eb" radius={[4,4,0,0]} barSize={52}/>

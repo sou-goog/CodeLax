@@ -29,7 +29,7 @@ export async function reviewPullRequest(
         }
     })
     if(!repository){
-        throw new Error(`Respository ${owner}/${repo} not found in database. Please reconnect the repository.`)
+        throw new Error(`Repository ${owner}/${repo} not found in database. Please reconnect the repository.`)
     }
     const githubAccount = repository.user.account[0];
     if(!githubAccount?.accessToken){
@@ -49,7 +49,7 @@ export async function reviewPullRequest(
         }
     })
 
-    return {succes:true , message:"Review Queued"}
+    return {success:true , message:"Review Queued"}
     } catch(error){
         try{
         const repository = await prisma.repository.findFirst({

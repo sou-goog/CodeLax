@@ -1,14 +1,34 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { getReviews } from "@/module/review/action";
-import { GitPullRequest, ExternalLink, ShieldAlert, Zap, BrainCircuit, Paintbrush, Calendar, AlertTriangle } from "lucide-react";
-import Link from 'next/link';
+import { GitPullRequest, ExternalLink, ShieldAlert, Zap, BrainCircuit, Paintbrush, Calendar } from "lucide-react";
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow } from 'date-fns';
+import { useQuery } from "@tanstack/react-query";
+
+interface ReviewFinding {
+  id: string;
+  agentName: string;
+  severity: string;
+  confidence: number;
+  file: string;
+  title: string;
+  description: string;
+  suggestion: string;
+}
+
+interface Review {
+  id: string;
+  prTitle: string;
+  prUrl: string;
+  createdAt: string;
+  repository: { fullName: string };
+  findings: ReviewFinding[];
+}
 
 const agentIcons: Record<string, React.ReactNode> = {
   security: <ShieldAlert className="w-4 h-4 mr-1 text-red-500" />,
@@ -26,22 +46,11 @@ const severityColors: Record<string, string> = {
 };
 
 export default function ReviewsPage() {
-  const [reviews, setReviews] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchReviews() {
-      try {
-        const data = await getReviews();
-        setReviews(data);
-      } catch (error) {
-        console.error("Failed to fetch reviews", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    fetchReviews();
-  }, []);
+  const { data: reviews = [], isLoading } = useQuery<Review[]>({
+    queryKey: ["reviews"],
+    queryFn: async () => await getReviews() as unknown as Review[],
+    refetchOnWindowFocus: false,
+  });
 
   if (isLoading) {
     return (
@@ -72,9 +81,9 @@ export default function ReviewsPage() {
             const findings = review.findings || [];
             
             // Count findings by severity
-            const criticalCount = findings.filter((f: any) => f.severity === 'critical').length;
-            const highCount = findings.filter((f: any) => f.severity === 'high').length;
-            const mediumCount = findings.filter((f: any) => f.severity === 'medium').length;
+            const criticalCount = findings.filter((f: ReviewFinding) => f.severity === 'critical').length;
+            const highCount = findings.filter((f: ReviewFinding) => f.severity === 'high').length;
+            const mediumCount = findings.filter((f: ReviewFinding) => f.severity === 'medium').length;
             
             // Determine overall risk visually
             let overallRiskBadge = null;
@@ -111,7 +120,7 @@ export default function ReviewsPage() {
                 <CardContent className="p-0">
                   {findings.length > 0 ? (
                     <div className="divide-y">
-                      {findings.map((finding: any) => (
+                      {findings.map((finding: ReviewFinding) => (
                         <div key={finding.id} className="p-4 sm:p-6 hover:bg-muted/30 transition-colors">
                           <div className="flex flex-col sm:flex-row gap-4">
                             <div className="sm:w-1/4">
