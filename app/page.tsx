@@ -5,8 +5,15 @@ import Link from "next/link";
 import { ShieldCheck, Zap, BrainCircuit, GitPullRequest, ArrowRight } from "lucide-react";
 
 export default async function Home() {
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (session?.user) {
+    let isAuthenticated = false;
+    try {
+        const session = await auth.api.getSession({ headers: await headers() });
+        isAuthenticated = !!session?.user;
+    } catch (e) {
+        // If auth/DB is unavailable, show landing page instead of crashing
+        console.error("Session check failed:", e);
+    }
+    if (isAuthenticated) {
         redirect("/dashboard");
     }
 
