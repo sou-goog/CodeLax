@@ -33,7 +33,8 @@ function buildTimeStub(): PrismaClient {
             });
         },
     };
-    return new Proxy({} as PrismaClient, handler);
+    // @ts-expect-error -- Proxy satisfies PrismaClient at runtime via handler traps
+    return new Proxy({}, handler);
 }
 
 const prismaClientSingleton = () => {
