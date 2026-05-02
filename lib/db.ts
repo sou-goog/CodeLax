@@ -45,8 +45,11 @@ const prismaClientSingleton = () => {
         const connectionString = process.env.DATABASE_URL;
         const pool = new Pool({ connectionString });
         const adapter = new PrismaPg(pool);
-        return new PrismaClient({ adapter });
-    } catch {
+        const client = new PrismaClient({ adapter });
+        console.log("[db] PrismaClient initialized with PrismaPg adapter");
+        return client;
+    } catch (e) {
+        console.error("[db] PrismaClient initialization failed, using stub:", e);
         return buildTimeStub();
     }
 };
