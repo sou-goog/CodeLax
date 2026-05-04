@@ -1,7 +1,7 @@
 import React from 'react'
-import {SidebarProvider, SidebarTrigger, SidebarInset} from "@/components/ui/sidebar"
-import {AppSidebar} from "@/components/app-sidebar"
 import { requireAuth } from "@/module/auth/utils/auth-utils"
+import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { Terminal } from "lucide-react"
 
 const DashboardLayout = async(
     {children}: {
@@ -10,19 +10,21 @@ const DashboardLayout = async(
 ) => {
     await requireAuth();
   return (
-    <SidebarProvider>
-        <AppSidebar />
-        <SidebarInset>
-          <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
-            <SidebarTrigger className="-ml-1"/>
-            <div data-orientation="vertical" role="none" className="shrink-0 bg-border w-[1px] mr-2 h-4" />
-            <h1 className="text-xl font-semibold text-foreground">CodeLax</h1>
-          </header>
-          <main className="flex-1 overflow-auto p-4 md:p-6">
-          {children}
-          </main>
-        </SidebarInset>
-    </SidebarProvider>
+    <div className="min-h-screen bg-background text-foreground">
+        {/* Top Header */}
+        <header className="bg-background/80 backdrop-blur-md border-b border-border/50 sticky top-0 z-50 flex justify-between items-center w-full px-6 py-3">
+            <div className="text-lg font-bold text-foreground flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-violet-500" />
+                <span>CodeLax</span>
+            </div>
+        </header>
+        <DashboardSidebar />
+        <main className="md:ml-64 p-6 min-h-[calc(100vh-49px)] overflow-y-auto">
+            <div className="max-w-7xl mx-auto">
+                {children}
+            </div>
+        </main>
+    </div>
   )
 }
 

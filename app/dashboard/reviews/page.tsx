@@ -1,12 +1,8 @@
 "use client";
 
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
 import { getReviews } from "@/module/review/action";
 import { GitPullRequest, ExternalLink, ShieldAlert, Zap, BrainCircuit, Paintbrush, Calendar } from "lucide-react";
-import { Button } from '@/components/ui/button';
 import { formatDistanceToNow } from 'date-fns';
 import { useQuery } from "@tanstack/react-query";
 
@@ -30,19 +26,19 @@ interface Review {
   findings: ReviewFinding[];
 }
 
-const agentIcons: Record<string, React.ReactNode> = {
-  security: <ShieldAlert className="w-4 h-4 mr-1 text-red-500" />,
-  performance: <Zap className="w-4 h-4 mr-1 text-yellow-500" />,
-  logic: <BrainCircuit className="w-4 h-4 mr-1 text-blue-500" />,
-  style: <Paintbrush className="w-4 h-4 mr-1 text-purple-500" />
+const agentConfig: Record<string, { icon: React.ReactNode; color: string; bg: string }> = {
+  security: { icon: <ShieldAlert className="w-4 h-4" />, color: "text-red-400", bg: "bg-red-500/20" },
+  performance: { icon: <Zap className="w-4 h-4" />, color: "text-yellow-400", bg: "bg-yellow-500/20" },
+  logic: { icon: <BrainCircuit className="w-4 h-4" />, color: "text-blue-400", bg: "bg-blue-500/20" },
+  style: { icon: <Paintbrush className="w-4 h-4" />, color: "text-purple-400", bg: "bg-purple-500/20" },
 };
 
-const severityColors: Record<string, string> = {
-  critical: "bg-red-500/10 text-red-500 border-red-500/20",
-  high: "bg-orange-500/10 text-orange-500 border-orange-500/20",
-  medium: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  low: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  info: "bg-slate-500/10 text-slate-500 border-slate-500/20",
+const severityConfig: Record<string, { color: string; dot: string; border: string }> = {
+  critical: { color: "text-red-400", dot: "bg-red-500", border: "border-l-red-500" },
+  high: { color: "text-orange-400", dot: "bg-orange-500", border: "border-l-orange-500" },
+  medium: { color: "text-yellow-400", dot: "bg-yellow-500", border: "border-l-yellow-500" },
+  low: { color: "text-blue-400", dot: "bg-blue-500", border: "border-l-blue-500" },
+  info: { color: "text-zinc-400", dot: "bg-zinc-500", border: "border-l-zinc-500" },
 };
 
 export default function ReviewsPage() {
@@ -55,115 +51,120 @@ export default function ReviewsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Spinner />
+        <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">AI Code Reviews</h1>
+        <h1 className="text-[40px] font-semibold tracking-tighter text-foreground mb-2">AI Reviews</h1>
         <p className="text-muted-foreground">Detailed findings from your multi-agent review pipeline.</p>
       </div>
 
       {reviews.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <GitPullRequest className="w-12 h-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium">No reviews yet</h3>
-            <p className="text-muted-foreground mb-4">Trigger an AI review on one of your repositories.</p>
-          </CardContent>
-        </Card>
+        <div className="bg-card border border-border border-dashed rounded-xl flex flex-col items-center justify-center py-16">
+          <GitPullRequest className="w-12 h-12 text-muted-foreground mb-4" />
+          <h3 className="text-lg font-medium text-foreground">No reviews yet</h3>
+          <p className="text-muted-foreground mb-4">Connect a repository and open a PR to trigger an AI review.</p>
+        </div>
       ) : (
         <div className="grid gap-6">
           {reviews.map((review) => {
             const findings = review.findings || [];
-            
-            // Count findings by severity
-            const criticalCount = findings.filter((f: ReviewFinding) => f.severity === 'critical').length;
-            const highCount = findings.filter((f: ReviewFinding) => f.severity === 'high').length;
-            const mediumCount = findings.filter((f: ReviewFinding) => f.severity === 'medium').length;
-            
-            // Determine overall risk visually
-            let overallRiskBadge = null;
-            if (criticalCount > 0) overallRiskBadge = <Badge variant="destructive" className="ml-2">Critical Risk</Badge>;
-            else if (highCount > 0) overallRiskBadge = <Badge className="bg-orange-500 hover:bg-orange-600 ml-2">High Risk</Badge>;
-            else if (mediumCount > 0) overallRiskBadge = <Badge variant="secondary" className="ml-2 text-yellow-600">Medium Risk</Badge>;
-            else overallRiskBadge = <Badge variant="outline" className="ml-2 text-green-500 border-green-500/30 bg-green-500/10">Low Risk</Badge>;
+            const criticalCount = findings.filter((f) => f.severity === 'critical').length;
+            const highCount = findings.filter((f) => f.severity === 'high').length;
 
             return (
-              <Card key={review.id} className="overflow-hidden">
-                <CardHeader className="bg-muted/50 pb-4">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <div className="flex items-center text-sm text-muted-foreground mb-1">
-                        <span className="font-medium text-foreground mr-2">{review.repository.fullName}</span>
-                        <span>•</span>
-                        <Calendar className="w-3 h-3 mx-1" />
-                        {formatDistanceToNow(new Date(review.createdAt), { addSuffix: true })}
-                      </div>
-                      <CardTitle className="text-xl flex items-center">
-                        <GitPullRequest className="w-5 h-5 mr-2" />
-                        {review.prTitle}
-                        {overallRiskBadge}
-                      </CardTitle>
+              <div key={review.id} className="bg-card border border-border rounded-xl overflow-hidden">
+                {/* Review Header */}
+                <div className="px-6 py-4 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center text-xs text-muted-foreground mb-2 gap-2">
+                      <span className="font-medium text-foreground">{review.repository.fullName}</span>
+                      <span>·</span>
+                      <Calendar className="w-3 h-3" />
+                      {formatDistanceToNow(new Date(review.createdAt), { addSuffix: true })}
                     </div>
-                    <Button variant="outline" size="sm" asChild>
-                      <a href={review.prUrl} target="_blank" rel="noreferrer">
-                        View PR on GitHub <ExternalLink className="w-4 h-4 ml-2" />
-                      </a>
-                    </Button>
+                    <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                      <GitPullRequest className="w-5 h-5 text-violet-400" />
+                      {review.prTitle}
+                      {criticalCount > 0 && (
+                        <span className="text-[10px] bg-red-500/10 text-red-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border border-red-500/20">
+                          {criticalCount} Critical
+                        </span>
+                      )}
+                      {highCount > 0 && (
+                        <span className="text-[10px] bg-orange-500/10 text-orange-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border border-orange-500/20">
+                          {highCount} High
+                        </span>
+                      )}
+                    </h3>
                   </div>
-                </CardHeader>
-                
-                <CardContent className="p-0">
-                  {findings.length > 0 ? (
-                    <div className="divide-y">
-                      {findings.map((finding: ReviewFinding) => (
-                        <div key={finding.id} className="p-4 sm:p-6 hover:bg-muted/30 transition-colors">
+                  <a
+                    href={review.prUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-muted border border-border text-foreground text-xs px-4 py-2 rounded-lg font-medium hover:border-violet-500/30 transition-colors flex items-center gap-2 w-fit"
+                  >
+                    View PR <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+
+                {/* Findings */}
+                {findings.length > 0 ? (
+                  <div>
+                    {findings.map((finding) => {
+                      const sev = severityConfig[finding.severity] || severityConfig.info;
+                      const agent = agentConfig[finding.agentName] || agentConfig.logic;
+                      return (
+                        <div key={finding.id} className={`border-b border-border/50 border-l-4 ${sev.border} p-5 hover:bg-muted/50 transition-colors`}>
                           <div className="flex flex-col sm:flex-row gap-4">
-                            <div className="sm:w-1/4">
-                              <Badge variant="outline" className={severityColors[finding.severity] || severityColors.info}>
-                                {finding.severity.toUpperCase()}
-                              </Badge>
-                              <div className="flex items-center mt-3 text-sm font-medium">
-                                {agentIcons[finding.agentName]}
-                                <span className="capitalize">{finding.agentName} Agent</span>
+                            {/* Left: Agent + Severity */}
+                            <div className="sm:w-56 shrink-0 space-y-3">
+                              <div className="flex items-center gap-2">
+                                <div className={`w-8 h-8 rounded-lg ${agent.bg} flex items-center justify-center ${agent.color}`}>
+                                  {agent.icon}
+                                </div>
+                                <div>
+                                  <h5 className="text-xs font-bold text-foreground capitalize">{finding.agentName} Agent</h5>
+                                  <span className={`text-[10px] font-medium ${sev.color} flex items-center gap-1`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${sev.dot}`} />
+                                    {finding.severity.toUpperCase()}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {(finding.confidence * 100).toFixed(0)}% Confidence
-                              </div>
+                              <span className="text-[10px] text-muted-foreground">Confidence: {(finding.confidence * 100).toFixed(0)}%</span>
                             </div>
-                            <div className="sm:w-3/4 space-y-2">
-                              <h4 className="text-base font-semibold">{finding.title}</h4>
-                              <p className="text-sm font-mono bg-muted px-2 py-1 rounded inline-block">
-                                {finding.file}
-                              </p>
-                              <p className="text-sm text-muted-foreground mt-2">
-                                {finding.description}
-                              </p>
-                              <div className="bg-blue-500/10 border border-blue-500/20 rounded-md p-3 mt-3">
-                                <p className="text-sm text-blue-700 dark:text-blue-300">
-                                  <strong>Suggestion:</strong> {finding.suggestion}
-                                </p>
-                              </div>
+                            {/* Right: Details */}
+                            <div className="flex-1 space-y-2">
+                              <h4 className="text-sm font-bold text-foreground">{finding.title}</h4>
+                              <p className="text-xs font-mono bg-card px-2 py-1 rounded inline-block text-muted-foreground">{finding.file}</p>
+                              <p className="text-[13px] text-muted-foreground leading-relaxed">{finding.description}</p>
+                              {finding.suggestion && (
+                                <div className="bg-violet-500/5 border border-violet-500/20 rounded-lg p-3 mt-2">
+                                  <p className="text-[13px] text-violet-300">
+                                    <strong>Suggestion:</strong> {finding.suggestion}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
-                      ))}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/10 mb-4">
+                      <ShieldAlert className="w-6 h-6 text-emerald-400" />
                     </div>
-                  ) : (
-                    <div className="p-6 text-center">
-                      <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-500/10 mb-4">
-                        <ShieldAlert className="w-6 h-6 text-green-500" />
-                      </div>
-                      <h4 className="text-lg font-medium">No issues found</h4>
-                      <p className="text-muted-foreground">The AI review completed successfully but did not find any critical issues to report.</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    <h4 className="text-lg font-medium text-foreground">All Clear</h4>
+                    <p className="text-muted-foreground text-sm">No critical issues found in this review.</p>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
