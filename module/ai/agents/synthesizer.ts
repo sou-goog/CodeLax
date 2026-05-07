@@ -10,7 +10,7 @@ export async function runSynthesizer(
   filesSummary?: string
 ): Promise<string> {
   const { text } = await generateText({
-    model: google("gemini-2.0-flash"),
+    model: google("gemini-1.5-flash"),
     temperature: 0.3,
     maxOutputTokens: 8192,
     system: `You are a world-class senior engineering lead performing the final code review on a GitHub pull request.

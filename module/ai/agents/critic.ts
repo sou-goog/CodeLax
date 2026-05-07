@@ -18,7 +18,7 @@ export async function runCritic(
   }
 
   const { text } = await generateText({
-    model: google("gemini-2.0-flash"),
+    model: google("gemini-1.5-flash"),
     temperature: 0.15,
     maxOutputTokens: 4096,
     system: `You are a senior engineering lead acting as a quality gate for AI code review findings.

@@ -8,7 +8,7 @@ export async function runStyleAgent(
   title: string
 ): Promise<SpecialistReport> {
   const { text } = await generateText({
-    model: google("gemini-2.0-flash"),
+    model: google("gemini-1.5-flash"),
     temperature: 0.2,
     maxOutputTokens: 4096,
     system: `You are a senior code quality engineer specializing in maintainability, readability, and best practices.

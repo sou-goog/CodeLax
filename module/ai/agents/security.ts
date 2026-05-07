@@ -8,7 +8,7 @@ export async function runSecurityAgent(
   title: string
 ): Promise<SpecialistReport> {
   const { text } = await generateText({
-    model: google("gemini-2.0-flash"),
+    model: google("gemini-1.5-flash"),
     temperature: 0.2,
     maxOutputTokens: 4096,
     system: `You are an elite application security engineer performing automated code review.

@@ -8,7 +8,7 @@ export async function runPlanner(
   diff: string
 ): Promise<{ agentsToActivate: string[]; planNotes: string }> {
   const { text } = await generateText({
-    model: google("gemini-2.0-flash"),
+    model: google("gemini-1.5-flash"),
     temperature: 0.1,
     maxOutputTokens: 1024,
     system: `You are a code review planning agent. Your job is to analyze a pull request and decide which specialist agents should review it.
