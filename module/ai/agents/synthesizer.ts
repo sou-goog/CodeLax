@@ -1,6 +1,8 @@
 import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
+import { createGroq } from "@ai-sdk/groq";
 import { CriticReport, parseJsonFromText } from "./types";
+
+const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
 
 export async function runSynthesizer(
   criticReport: CriticReport,
@@ -10,7 +12,7 @@ export async function runSynthesizer(
   filesSummary?: string
 ): Promise<string> {
   const { text } = await generateText({
-    model: google("gemini-1.5-pro-latest"),
+    model: groq("llama-3.3-70b-versatile"),
     temperature: 0.3,
     maxOutputTokens: 8192,
     system: `You are a world-class senior engineering lead performing the final code review on a GitHub pull request.

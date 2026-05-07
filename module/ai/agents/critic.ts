@@ -1,6 +1,8 @@
 import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
+import { createGroq } from "@ai-sdk/groq";
 import { SpecialistReport, CriticReport, parseJsonFromText } from "./types";
+
+const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
 
 export async function runCritic(
   reports: SpecialistReport[]
@@ -18,7 +20,7 @@ export async function runCritic(
   }
 
   const { text } = await generateText({
-    model: google("gemini-1.5-pro-latest"),
+    model: groq("llama-3.3-70b-versatile"),
     temperature: 0.15,
     maxOutputTokens: 4096,
     system: `You are a senior engineering lead acting as a quality gate for AI code review findings.
