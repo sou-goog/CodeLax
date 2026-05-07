@@ -50,57 +50,62 @@ export const generateReviewMultiAgent = inngest.createFunction(
       return { processedDiff: result.diff, filesSummary: result.filesSummary };
     });
 
-    // Step 3: RAG context retrieval (using changed filenames + PR title for better relevance)
+    // Step 3: RAG context retrieval
     const context = await step.run("retrieve-context", async () => {
       const changedFiles = getChangedFilenames(diff);
       const query = `${title}\n${description}\nChanged files: ${changedFiles.join(", ")}`;
       return await retrieveContext(query, `${owner}/${repo}`, 10);
     });
 
-    // Step 4: Planner Agent
+    // Step 4: Planner Agent — decides which agents to activate
     const plan = await step.run("planner", () =>
       runPlanner(title, description, processedDiff)
     );
 
-    // Step 5: Run only the agents the planner selected (with delays for rate limiting)
+    // Step 5: Run ALL selected specialist agents IN PARALLEL (major speed improvement)
+    // All 4 agents fire simultaneously instead of waiting 10s between each one.
     const agentsToRun = plan.agentsToActivate || ["security", "performance", "logic", "style"];
-    const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
-      security: () => runSecurityAgent(processedDiff, context, title),
-      performance: () => runPerformanceAgent(processedDiff, context, title),
-      logic: () => runLogicAgent(processedDiff, context, title),
-      style: () => runStyleAgent(processedDiff, context, title),
-    };
 
-    const reports: SpecialistReport[] = [];
-    for (const agentName of agentsToRun) {
-      if (agentRunners[agentName]) {
-        try {
-          const report = await step.run(`agent-${agentName}`, agentRunners[agentName]);
-          reports.push(report);
-        } catch (error) {
-          console.error(`Agent ${agentName} failed, skipping:`, error);
-          reports.push({
-            agentName,
-            findings: [],
-            summary: `Agent ${agentName} failed to analyze this PR.`,
-            analysisNotes: `Error: ${error instanceof Error ? error.message : "Unknown error"}`
-          });
+    const reports = await step.run("run-specialist-agents", async () => {
+      const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
+        security: () => runSecurityAgent(processedDiff, context, title),
+        performance: () => runPerformanceAgent(processedDiff, context, title),
+        logic: () => runLogicAgent(processedDiff, context, title),
+        style: () => runStyleAgent(processedDiff, context, title),
+      };
+
+      const activeAgents = agentsToRun.filter((name) => agentRunners[name]);
+
+      const results = await Promise.allSettled(
+        activeAgents.map((name) => agentRunners[name]())
+      );
+
+      return results.map((result, i) => {
+        const agentName = activeAgents[i];
+        if (result.status === "fulfilled") {
+          return result.value;
         }
-        await step.sleep(`wait-after-${agentName}`, "10s");
-      }
-    }
+        console.error(`Agent ${agentName} failed:`, result.reason);
+        return {
+          agentName,
+          findings: [],
+          summary: `Agent ${agentName} failed to analyze this PR.`,
+          analysisNotes: `Error: ${result.reason?.message ?? "Unknown error"}`
+        } as SpecialistReport;
+      });
+    });
 
-    // Step 6: Critic Agent
+    // Step 6: Critic Agent — deduplicates and filters findings
     const criticReport = await step.run("critic", () =>
       runCritic(reports)
     );
 
-    // Step 7: Synthesizer Agent
+    // Step 7: Synthesizer Agent — produces final markdown review
     const finalReview = await step.run("synthesizer", () =>
       runSynthesizer(criticReport, processedDiff, title, description, filesSummary)
     );
 
-    // Step 7: Post review as GitHub PR comment
+    // Step 8: Post review as GitHub PR comment
     await step.run("post-comment", async () => {
       const octokit = new Octokit({ auth: token });
       await octokit.rest.issues.createComment({
@@ -111,7 +116,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
       });
     });
 
-    // Step 8: Save review and findings to database
+    // Step 9: Save review and findings to database
     await step.run("save-review", async () => {
       const repository = await prisma.repository.findFirst({
         where: { owner, name: repo }
