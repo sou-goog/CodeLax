@@ -7,7 +7,8 @@ const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
 export async function runLogicAgent(
   diff: string,
   context: string[],
-  title: string
+  title: string,
+  customInstructions?: string[]
 ): Promise<SpecialistReport> {
   const { text } = await generateText({
     model: groq("llama-3.3-70b-versatile"),
@@ -63,7 +64,7 @@ Code Changes:
 ${diff}
 \`\`\`
 
-Analyze these changes for logic bugs and edge cases. Return ONLY valid JSON matching the schema shown in your instructions.`,
+Analyze these changes for logic bugs and edge cases. Return ONLY valid JSON matching the schema shown in your instructions.${customInstructions?.length ? `\n\nAdditional team rules to enforce:\n${customInstructions.map((r) => `- ${r}`).join("\n")}` : ""}`,
   });
 
   return parseJsonFromText(text) as SpecialistReport;

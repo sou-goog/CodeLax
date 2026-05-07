@@ -4,6 +4,7 @@ import prisma from "@/lib/db";
 import { generateText } from "ai";
 import { createGroq } from "@ai-sdk/groq";
 import { prepareDiffForAgents } from "@/module/ai/lib/diff-parser";
+import { fetchRepoConfig } from "@/module/ai/lib/config";
 
 const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -14,7 +15,7 @@ export const generatePRDescription = inngest.createFunction(
   async ({ event, step }) => {
     const { owner, repo, prNumber, userId } = event.data;
 
-    const { diff, title, token, currentBody } = await step.run("fetch-pr-data", async () => {
+    const { diff, title, token, currentBody, autoDescription } = await step.run("fetch-pr-data", async () => {
       const account = await prisma.account.findFirst({
         where: { userId, providerId: "github" }
       });
@@ -22,21 +23,25 @@ export const generatePRDescription = inngest.createFunction(
       if (!account?.accessToken) throw new Error("No GitHub access token found");
 
       const octokit = new Octokit({ auth: account.accessToken });
-      const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
-      const { data: diffData } = await octokit.rest.pulls.get({
-        owner, repo, pull_number: prNumber,
-        mediaType: { format: "diff" }
-      });
+      const [{ data: pr }, { data: diffData }, config] = await Promise.all([
+        octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
+        octokit.rest.pulls.get({ owner, repo, pull_number: prNumber, mediaType: { format: "diff" } }),
+        fetchRepoConfig(octokit, owner, repo),
+      ]);
 
       return {
         diff: diffData as unknown as string,
         title: pr.title,
         token: account.accessToken,
-        currentBody: pr.body ?? ""
+        currentBody: pr.body ?? "",
+        autoDescription: config.autoDescription !== false
       };
     });
 
-    // Skip if PR already has a meaningful description
+    // Skip if disabled in config or PR already has a description
+    if (!autoDescription) {
+      return { success: true, skipped: true, reason: "Auto-description disabled in .codelax.yaml" };
+    }
     if (currentBody.length > 100) {
       return { success: true, skipped: true, reason: "PR already has a description" };
     }

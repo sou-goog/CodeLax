@@ -11,16 +11,18 @@ import { runStyleAgent } from "@/module/ai/agents/style";
 import { runCritic } from "@/module/ai/agents/critic";
 import { runSynthesizer } from "@/module/ai/agents/synthesizer";
 import type { SpecialistReport } from "@/module/ai/agents/types";
+import { fetchRepoConfig, type CodeLaxConfig } from "@/module/ai/lib/config";
+import { sendSlackNotification } from "@/module/ai/lib/notifications";
 
 export const generateReviewMultiAgent = inngest.createFunction(
   { id: "generate-review-multi-agent", concurrency: 3 },
   { event: "pr.review.requested" },
 
   async ({ event, step }) => {
-    const { owner, repo, prNumber, userId } = event.data;
+    const { owner, repo, prNumber, userId, action, before, after } = event.data;
 
-    // Step 1: Fetch PR data + get GitHub token
-    const { diff, title, description, token } = await step.run("fetch-pr-data", async () => {
+    // Step 1: Fetch PR data + repo config + get GitHub token
+    const { diff, title, description, token, config, isIncremental } = await step.run("fetch-pr-data", async () => {
       const account = await prisma.account.findFirst({
         where: { userId, providerId: "github" }
       });
@@ -29,17 +31,40 @@ export const generateReviewMultiAgent = inngest.createFunction(
 
       const octokit = new Octokit({ auth: account.accessToken });
 
-      const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
-      const { data: diffData } = await octokit.rest.pulls.get({
-        owner, repo, pull_number: prNumber,
-        mediaType: { format: "diff" }
-      });
+      const [{ data: pr }, repoConfig] = await Promise.all([
+        octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
+        fetchRepoConfig(octokit, owner, repo),
+      ]);
+
+      let diffText: string;
+      let incremental = false;
+
+      // Incremental review: only get diff between before/after commits on push
+      if (action === "synchronize" && before && after) {
+        const { data: compareData } = await octokit.rest.repos.compareCommits({
+          owner,
+          repo,
+          base: before as string,
+          head: after as string,
+          mediaType: { format: "diff" },
+        });
+        diffText = compareData as unknown as string;
+        incremental = true;
+      } else {
+        const { data: diffData } = await octokit.rest.pulls.get({
+          owner, repo, pull_number: prNumber,
+          mediaType: { format: "diff" }
+        });
+        diffText = diffData as unknown as string;
+      }
 
       return {
-        diff: diffData as unknown as string,
+        diff: diffText,
         title: pr.title,
         description: pr.body ?? "",
-        token: account.accessToken
+        token: account.accessToken,
+        config: repoConfig,
+        isIncremental: incremental
       };
     });
 
@@ -62,16 +87,19 @@ export const generateReviewMultiAgent = inngest.createFunction(
       };
     });
 
-    // Step 5: Run ALL selected specialist agents IN PARALLEL (major speed improvement)
-    // All 4 agents fire simultaneously instead of waiting 10s between each one.
-    const agentsToRun = plan.agentsToActivate || ["security", "performance", "logic", "style"];
+    // Step 5: Run specialist agents in parallel
+    // Use config.agents to limit which agents run, intersected with planner's selection
+    const configAgents = config.agents || ["security", "performance", "logic", "style"];
+    const plannerAgents = plan.agentsToActivate || ["security", "performance", "logic", "style"];
+    const agentsToRun = plannerAgents.filter((a) => configAgents.includes(a as any));
 
     const reports = await step.run("run-specialist-agents", async () => {
+      const instructions = config.instructions || [];
       const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
-        security: () => runSecurityAgent(processedDiff, context, title),
-        performance: () => runPerformanceAgent(processedDiff, context, title),
-        logic: () => runLogicAgent(processedDiff, context, title),
-        style: () => runStyleAgent(processedDiff, context, title),
+        security: () => runSecurityAgent(processedDiff, context, title, instructions),
+        performance: () => runPerformanceAgent(processedDiff, context, title, instructions),
+        logic: () => runLogicAgent(processedDiff, context, title, instructions),
+        style: () => runStyleAgent(processedDiff, context, title, instructions),
       };
 
       const activeAgents = agentsToRun.filter((name) => agentRunners[name]);
@@ -100,10 +128,22 @@ export const generateReviewMultiAgent = inngest.createFunction(
       runCritic(reports)
     );
 
+    // Send Slack notification for critical/high findings (non-blocking)
+    sendSlackNotification({
+      owner,
+      repo,
+      prNumber,
+      prTitle: title,
+      findings: criticReport.verifiedFindings,
+      overallRisk: criticReport.overallRisk,
+    }).catch(() => {});
+
     // Step 7: Synthesizer Agent — produces final markdown review
-    const finalReview = await step.run("synthesizer", () =>
-      runSynthesizer(criticReport, processedDiff, title, description, filesSummary)
-    );
+    const reviewPrefix = isIncremental ? "## 🔄 Incremental Review (new commits only)\n\n" : "";
+    const finalReview = await step.run("synthesizer", async () => {
+      const review = await runSynthesizer(criticReport, processedDiff, title, description, filesSummary);
+      return reviewPrefix + review;
+    });
 
     // Step 5: Post review with inline comments + save to DB
     await step.run("post-and-save", async () => {
@@ -121,10 +161,13 @@ export const generateReviewMultiAgent = inngest.createFunction(
         body: finalReview
       });
 
-      // Post inline comments for top findings (max 5, severity >= medium)
-      const MAX_INLINE_COMMENTS = 5;
+      // Post inline comments based on config
+      const MAX_INLINE_COMMENTS = config.maxInlineComments ?? 5;
+      const severityOrder = ["critical", "high", "medium", "low"];
+      const minSevIndex = severityOrder.indexOf(config.minSeverity ?? "medium");
+      const allowedSeverities = severityOrder.slice(0, minSevIndex + 1);
       const inlineFindings = criticReport.verifiedFindings
-        .filter((f) => f.line && f.file && ["critical", "high", "medium"].includes(f.severity))
+        .filter((f) => f.line && f.file && allowedSeverities.includes(f.severity))
         .slice(0, MAX_INLINE_COMMENTS);
 
       for (const finding of inlineFindings) {

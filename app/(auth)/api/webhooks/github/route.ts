@@ -58,7 +58,15 @@ export async function POST(req: NextRequest) {
             const events: { name: string; data: Record<string, unknown> }[] = [
                 {
                     name: "pr.review.requested",
-                    data: { owner, repo, prNumber, userId: repository.userId },
+                    data: {
+                        owner,
+                        repo,
+                        prNumber,
+                        userId: repository.userId,
+                        action: body.action,
+                        before: body.before ?? null,
+                        after: body.after ?? null,
+                    },
                 },
             ];
 
