@@ -1,8 +1,5 @@
-import { generateText } from "ai";
-import { createGroq } from "@ai-sdk/groq";
 import { SpecialistReport, CriticReport, parseJsonFromText } from "./types";
-
-const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
+import { generateTextWithFallback, getModel } from "@/module/ai/lib/model-provider";
 
 export async function runCritic(
   reports: SpecialistReport[]
@@ -19,8 +16,8 @@ export async function runCritic(
     };
   }
 
-  const { text } = await generateText({
-    model: groq("llama-3.3-70b-versatile"),
+  const text = await generateTextWithFallback({
+    model: getModel("critic"),
     temperature: 0.15,
     maxOutputTokens: 4096,
     system: `You are a senior engineering lead acting as a quality gate for AI code review findings.

@@ -1,8 +1,5 @@
-import { generateText } from "ai";
-import { createGroq } from "@ai-sdk/groq";
 import { CriticReport, parseJsonFromText } from "./types";
-
-const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
+import { generateTextWithFallback, getModel } from "@/module/ai/lib/model-provider";
 
 export async function runSynthesizer(
   criticReport: CriticReport,
@@ -11,8 +8,8 @@ export async function runSynthesizer(
   description: string,
   filesSummary?: string
 ): Promise<string> {
-  const { text } = await generateText({
-    model: groq("llama-3.3-70b-versatile"),
+  const text = await generateTextWithFallback({
+    model: getModel("synthesizer"),
     temperature: 0.3,
     maxOutputTokens: 8192,
     system: `You are a senior engineering lead producing a concise, actionable code review for a GitHub pull request.

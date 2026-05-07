@@ -1,16 +1,13 @@
-import { generateText } from "ai";
-import { createGroq } from "@ai-sdk/groq";
 import { parseJsonFromText } from "./types";
-
-const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
+import { generateTextWithFallback, getModel } from "@/module/ai/lib/model-provider";
 
 export async function runPlanner(
   title: string,
   description: string,
   diff: string
 ): Promise<{ agentsToActivate: string[]; planNotes: string }> {
-  const { text } = await generateText({
-    model: groq("llama-3.3-70b-versatile"),
+  const text = await generateTextWithFallback({
+    model: getModel("planner"),
     temperature: 0.1,
     maxOutputTokens: 1024,
     system: `You are a code review planning agent. Your job is to analyze a pull request and decide which specialist agents should review it.

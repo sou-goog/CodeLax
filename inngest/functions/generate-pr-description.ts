@@ -1,12 +1,9 @@
 import { inngest } from "../client";
 import { Octokit } from "octokit";
 import prisma from "@/lib/db";
-import { generateText } from "ai";
-import { createGroq } from "@ai-sdk/groq";
 import { prepareDiffForAgents } from "@/module/ai/lib/diff-parser";
 import { fetchRepoConfig } from "@/module/ai/lib/config";
-
-const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
+import { generateTextWithFallback, getModel } from "@/module/ai/lib/model-provider";
 
 export const generatePRDescription = inngest.createFunction(
   { id: "generate-pr-description", concurrency: 3 },
@@ -49,8 +46,8 @@ export const generatePRDescription = inngest.createFunction(
     const description = await step.run("generate-description", async () => {
       const { diff: processedDiff } = prepareDiffForAgents(diff, 10000);
 
-      const { text } = await generateText({
-        model: groq("llama-3.3-70b-versatile"),
+      const text = await generateTextWithFallback({
+        model: getModel("planner"),
         temperature: 0.3,
         maxOutputTokens: 2048,
         system: `You generate concise, informative PR descriptions from code diffs.

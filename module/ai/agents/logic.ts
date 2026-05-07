@@ -1,8 +1,5 @@
-import { generateText } from "ai";
-import { createGroq } from "@ai-sdk/groq";
 import { SpecialistReport, parseJsonFromText } from "./types";
-
-const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
+import { generateTextWithFallback, getModel } from "@/module/ai/lib/model-provider";
 
 export async function runLogicAgent(
   diff: string,
@@ -10,8 +7,8 @@ export async function runLogicAgent(
   title: string,
   customInstructions?: string[]
 ): Promise<SpecialistReport> {
-  const { text } = await generateText({
-    model: groq("llama-3.3-70b-versatile"),
+  const text = await generateTextWithFallback({
+    model: getModel("specialist"),
     temperature: 0.2,
     maxOutputTokens: 4096,
     system: `You are a senior software engineer specializing in correctness analysis and bug detection.
