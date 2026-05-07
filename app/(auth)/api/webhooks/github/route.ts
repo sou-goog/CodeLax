@@ -54,16 +54,23 @@ export async function POST(req: NextRequest) {
 
             console.log(`Sending pr.review.requested for ${owner}/${repo} PR#${prNumber}`);
 
-            // Send Inngest event
-            await inngest.send({
-                name: "pr.review.requested",
-                data: {
-                    owner,
-                    repo,
-                    prNumber,
-                    userId: repository.userId,
-                }
-            });
+            // Send Inngest events
+            const events: { name: string; data: Record<string, unknown> }[] = [
+                {
+                    name: "pr.review.requested",
+                    data: { owner, repo, prNumber, userId: repository.userId },
+                },
+            ];
+
+            // Generate PR description only on new PRs (not on push/reopen)
+            if (body.action === "opened") {
+                events.push({
+                    name: "pr.description.generate",
+                    data: { owner, repo, prNumber, userId: repository.userId },
+                });
+            }
+
+            await inngest.send(events);
 
             return NextResponse.json({ message: "Review triggered" }, { status: 200 });
         }

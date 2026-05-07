@@ -35,8 +35,8 @@ For each finding:
 {2-3 sentence explanation of the issue and its real-world impact.}
 
 **Fix:**
-\`\`\`
-{Copy-pasteable fix code — real code, not pseudo-code.}
+\`\`\`suggestion
+{The corrected code that replaces the problematic line(s). This MUST be real code, not pseudo-code. GitHub will render this as a one-click "Apply suggestion" button.}
 \`\`\`
 
 ---

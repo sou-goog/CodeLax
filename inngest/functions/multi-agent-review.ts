@@ -105,9 +105,15 @@ export const generateReviewMultiAgent = inngest.createFunction(
       runSynthesizer(criticReport, processedDiff, title, description, filesSummary)
     );
 
-    // Step 5: Post comment + save to DB (combined for speed)
+    // Step 5: Post review with inline comments + save to DB
     await step.run("post-and-save", async () => {
       const octokit = new Octokit({ auth: token });
+
+      // Get the latest commit SHA for inline comments
+      const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+      const commitSha = pr.head.sha;
+
+      // Post the summary review as a PR comment
       await octokit.rest.issues.createComment({
         owner,
         repo,
@@ -115,6 +121,37 @@ export const generateReviewMultiAgent = inngest.createFunction(
         body: finalReview
       });
 
+      // Post inline comments for top findings (max 5, severity >= medium)
+      const MAX_INLINE_COMMENTS = 5;
+      const inlineFindings = criticReport.verifiedFindings
+        .filter((f) => f.line && f.file && ["critical", "high", "medium"].includes(f.severity))
+        .slice(0, MAX_INLINE_COMMENTS);
+
+      for (const finding of inlineFindings) {
+        try {
+          const body = [
+            `**${finding.severity.toUpperCase()}** — ${finding.title}`,
+            "",
+            finding.description,
+            "",
+            finding.suggestion ? `\`\`\`suggestion\n${finding.suggestion}\n\`\`\`` : "",
+          ].filter(Boolean).join("\n");
+
+          await octokit.rest.pulls.createReviewComment({
+            owner,
+            repo,
+            pull_number: prNumber,
+            commit_id: commitSha,
+            path: finding.file,
+            line: finding.line!,
+            body,
+          });
+        } catch (e) {
+          console.error(`Failed to post inline comment on ${finding.file}:${finding.line}`, e);
+        }
+      }
+
+      // Save to database
       const repository = await prisma.repository.findFirst({
         where: { owner, name: repo }
       });
