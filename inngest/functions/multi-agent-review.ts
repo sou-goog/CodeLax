@@ -43,24 +43,24 @@ export const generateReviewMultiAgent = inngest.createFunction(
       };
     });
 
-    // Step 2: Parse and filter diff
-    const { processedDiff, filesSummary } = await step.run("parse-diff", async () => {
-      const result = prepareDiffForAgents(diff, 30000);
+    // Step 2: Prepare — parse diff, retrieve RAG context, and plan agents (combined for speed)
+    const { processedDiff, filesSummary, context, plan } = await step.run("prepare", async () => {
+      const result = prepareDiffForAgents(diff, 25000);
       console.log(`[review] ${result.filesSummary}`);
-      return { processedDiff: result.diff, filesSummary: result.filesSummary };
-    });
 
-    // Step 3: RAG context retrieval
-    const context = await step.run("retrieve-context", async () => {
       const changedFiles = getChangedFilenames(diff);
       const query = `${title}\n${description}\nChanged files: ${changedFiles.join(", ")}`;
-      return await retrieveContext(query, `${owner}/${repo}`, 10);
-    });
+      const ctx = await retrieveContext(query, `${owner}/${repo}`, 8);
 
-    // Step 4: Planner Agent — decides which agents to activate
-    const plan = await step.run("planner", () =>
-      runPlanner(title, description, processedDiff)
-    );
+      const p = await runPlanner(title, description, result.diff);
+
+      return {
+        processedDiff: result.diff,
+        filesSummary: result.filesSummary,
+        context: ctx,
+        plan: p,
+      };
+    });
 
     // Step 5: Run ALL selected specialist agents IN PARALLEL (major speed improvement)
     // All 4 agents fire simultaneously instead of waiting 10s between each one.
@@ -105,8 +105,8 @@ export const generateReviewMultiAgent = inngest.createFunction(
       runSynthesizer(criticReport, processedDiff, title, description, filesSummary)
     );
 
-    // Step 8: Post review as GitHub PR comment
-    await step.run("post-comment", async () => {
+    // Step 5: Post comment + save to DB (combined for speed)
+    await step.run("post-and-save", async () => {
       const octokit = new Octokit({ auth: token });
       await octokit.rest.issues.createComment({
         owner,
@@ -114,10 +114,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
         issue_number: prNumber,
         body: finalReview
       });
-    });
 
-    // Step 9: Save review and findings to database
-    await step.run("save-review", async () => {
       const repository = await prisma.repository.findFirst({
         where: { owner, name: repo }
       });

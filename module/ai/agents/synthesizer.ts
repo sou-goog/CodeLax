@@ -93,7 +93,7 @@ ${JSON.stringify(criticReport.rejectedFindings ?? [], null, 2)}
 
 Full Code Diff (use this for the walkthrough and to ground your explanations):
 \`\`\`diff
-${diff.slice(0, 20000)}
+${diff.slice(0, 12000)}
 \`\`\`
 
 Now produce the complete, final code review in markdown format. Be detailed, specific, and genuinely helpful.`,

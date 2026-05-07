@@ -8,7 +8,7 @@ export async function runLogicAgent(
   title: string
 ): Promise<SpecialistReport> {
   const { text } = await generateText({
-    model: google("gemini-flash-latest"),
+    model: google("gemini-2.0-flash"),
     temperature: 0.2,
     maxOutputTokens: 4096,
     system: `You are a senior software engineer specializing in correctness analysis and bug detection.
