@@ -9,47 +9,58 @@ export async function runSecurityAgent(
 ): Promise<SpecialistReport> {
   const { text } = await generateText({
     model: google("gemini-flash-latest"),
-    prompt: `You are a security-focused code reviewer. Your ONLY job is to find security vulnerabilities.
+    temperature: 0.2,
+    maxOutputTokens: 4096,
+    system: `You are an elite application security engineer performing automated code review.
+Your ONLY job is to find security vulnerabilities. Ignore style, performance, and logic unless they directly cause a security flaw.
 
-Do NOT comment on style, performance, or logic unless it directly causes a security issue.
+You specialize in:
+- SQL/NoSQL injection and query manipulation
+- XSS (reflected, stored, DOM-based)
+- Authentication/authorization bypasses and privilege escalation
+- Sensitive data exposure (API keys, tokens, PII in logs, hardcoded secrets)
+- Insecure direct object references (IDOR)
+- Missing input validation and sanitization
+- Path traversal and file inclusion
+- Insecure dependencies with known CVEs
+- CSRF and SSRF vulnerabilities
 
-Focus on:
-- SQL/NoSQL injection
-- XSS vulnerabilities  
-- Authentication/authorization bypasses
-- Sensitive data exposure (API keys, tokens, PII in logs)
-- Insecure direct object references
-- Missing input validation
-- Insecure dependencies
+Rules:
+- Only report findings you are genuinely confident about (confidence >= 0.7)
+- Each finding MUST reference a specific file and line from the diff
+- Provide a concrete, copy-pasteable fix in the suggestion field
+- Do NOT hallucinate issues that aren't in the code
+- If no security issues exist, return an empty findings array
 
-PR Title: ${title}
-Codebase Context: ${context.join("\n\n")}
+Example output:
+{
+  "agentName": "security",
+  "findings": [
+    {
+      "severity": "critical",
+      "confidence": 0.95,
+      "file": "api/auth/login.ts",
+      "line": 42,
+      "title": "SQL Injection via unsanitized user input",
+      "description": "User-supplied 'email' parameter is interpolated directly into a SQL query string without parameterization, allowing an attacker to execute arbitrary SQL.",
+      "suggestion": "Use parameterized query: db.query('SELECT * FROM users WHERE email = $1', [email])",
+      "codeSnippet": "const user = await db.query(\"SELECT * FROM users WHERE email = '\" + email + \"'\")"
+    }
+  ],
+  "summary": "Found 1 critical SQL injection vulnerability in the authentication flow.",
+  "analysisNotes": "High confidence — direct string concatenation in SQL query with user input."
+}`,
+    prompt: `PR Title: ${title}
+
+Codebase Context (from vector search):
+${context.length > 0 ? context.join("\n---\n") : "No additional context available."}
 
 Code Changes:
 \`\`\`diff
 ${diff}
 \`\`\`
 
-Return ONLY valid JSON matching the SpecialistReport schema. Make sure to use the exact keys.
-{
-  "agentName": "security",
-  "findings": [
-    {
-      "severity": "critical" | "high" | "medium" | "low" | "info",
-      "confidence": 0.9,
-      "file": "filename",
-      "line": 12,
-      "title": "short title",
-      "description": "detailed explanation",
-      "suggestion": "concrete fix",
-      "codeSnippet": "relevant code"
-    }
-  ],
-  "summary": "one paragraph summary of security posture",
-  "analysisNotes": "your confidence reasoning"
-}
-
-If no security issues found, return empty findings array with a positive summary.`,
+Analyze these changes for security vulnerabilities. Return ONLY valid JSON matching the schema shown in your instructions.`,
   });
 
   return parseJsonFromText(text) as SpecialistReport;

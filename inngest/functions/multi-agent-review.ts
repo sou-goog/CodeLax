@@ -2,6 +2,7 @@ import { inngest } from "../client";
 import { Octokit } from "octokit";
 import prisma from "@/lib/db";
 import { retrieveContext } from "@/module/ai/lib/rag";
+import { prepareDiffForAgents, getChangedFilenames } from "@/module/ai/lib/diff-parser";
 import { runPlanner } from "@/module/ai/agents/planner";
 import { runSecurityAgent } from "@/module/ai/agents/security";
 import { runPerformanceAgent } from "@/module/ai/agents/performance";
@@ -42,24 +43,32 @@ export const generateReviewMultiAgent = inngest.createFunction(
       };
     });
 
-    // Step 2: RAG context retrieval
-    const context = await step.run("retrieve-context", async () => {
-      const query = `${title}\n${description}`;
-      return await retrieveContext(query, `${owner}/${repo}`);
+    // Step 2: Parse and filter diff
+    const { processedDiff, filesSummary } = await step.run("parse-diff", async () => {
+      const result = prepareDiffForAgents(diff, 30000);
+      console.log(`[review] ${result.filesSummary}`);
+      return { processedDiff: result.diff, filesSummary: result.filesSummary };
     });
 
-    // Step 3: Planner Agent
+    // Step 3: RAG context retrieval (using changed filenames + PR title for better relevance)
+    const context = await step.run("retrieve-context", async () => {
+      const changedFiles = getChangedFilenames(diff);
+      const query = `${title}\n${description}\nChanged files: ${changedFiles.join(", ")}`;
+      return await retrieveContext(query, `${owner}/${repo}`, 10);
+    });
+
+    // Step 4: Planner Agent
     const plan = await step.run("planner", () =>
-      runPlanner(title, description, diff)
+      runPlanner(title, description, processedDiff)
     );
 
-    // Step 4: Run only the agents the planner selected (with delays for rate limiting)
+    // Step 5: Run only the agents the planner selected (with delays for rate limiting)
     const agentsToRun = plan.agentsToActivate || ["security", "performance", "logic", "style"];
     const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
-      security: () => runSecurityAgent(diff, context, title),
-      performance: () => runPerformanceAgent(diff, context, title),
-      logic: () => runLogicAgent(diff, context, title),
-      style: () => runStyleAgent(diff, context, title),
+      security: () => runSecurityAgent(processedDiff, context, title),
+      performance: () => runPerformanceAgent(processedDiff, context, title),
+      logic: () => runLogicAgent(processedDiff, context, title),
+      style: () => runStyleAgent(processedDiff, context, title),
     };
 
     const reports: SpecialistReport[] = [];
@@ -81,14 +90,14 @@ export const generateReviewMultiAgent = inngest.createFunction(
       }
     }
 
-    // Step 5: Critic Agent
+    // Step 6: Critic Agent
     const criticReport = await step.run("critic", () =>
       runCritic(reports)
     );
 
-    // Step 6: Synthesizer Agent
+    // Step 7: Synthesizer Agent
     const finalReview = await step.run("synthesizer", () =>
-      runSynthesizer(criticReport, diff, title, description)
+      runSynthesizer(criticReport, processedDiff, title, description, filesSummary)
     );
 
     // Step 7: Post review as GitHub PR comment
