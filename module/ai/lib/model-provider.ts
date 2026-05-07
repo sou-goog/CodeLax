@@ -27,11 +27,18 @@ interface ProviderEntry {
 function buildProviderChain(): ProviderEntry[] {
   const chain: ProviderEntry[] = [];
 
-  // 1. Groq keys (supports comma-separated rotation)
-  const groqKeys = (process.env.GROQ_API_KEY ?? "")
-    .split(",")
-    .map((k) => k.trim())
-    .filter(Boolean);
+  // 1. Groq keys (supports comma-separated AND separate env vars: GROQ_API_KEY, GROQ_API_KEY_2, GROQ_API_KEY_3...)
+  const groqKeys: string[] = [];
+
+  // Collect from GROQ_API_KEY (may be comma-separated)
+  if (process.env.GROQ_API_KEY) {
+    groqKeys.push(...process.env.GROQ_API_KEY.split(",").map((k) => k.trim()).filter(Boolean));
+  }
+  // Collect from GROQ_API_KEY_2, GROQ_API_KEY_3, etc.
+  for (let n = 2; n <= 10; n++) {
+    const key = process.env[`GROQ_API_KEY_${n}`];
+    if (key) groqKeys.push(key.trim());
+  }
 
   for (let i = 0; i < groqKeys.length; i++) {
     const groq = createGroq({ apiKey: groqKeys[i] });
