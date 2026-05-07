@@ -1,6 +1,8 @@
 import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
+import { createGroq } from "@ai-sdk/groq";
 import { SpecialistReport, parseJsonFromText } from "./types";
+
+const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
 
 export async function runPerformanceAgent(
   diff: string,
@@ -8,7 +10,7 @@ export async function runPerformanceAgent(
   title: string
 ): Promise<SpecialistReport> {
   const { text } = await generateText({
-    model: google("gemini-1.5-flash"),
+    model: groq("llama-3.3-70b-versatile"),
     temperature: 0.2,
     maxOutputTokens: 4096,
     system: `You are a senior performance engineer performing automated code review.
