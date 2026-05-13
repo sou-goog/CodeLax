@@ -39,12 +39,28 @@ For each finding:
 ---
 
 ### Changes Diagram
-Generate a Mermaid diagram showing the flow of changes. Use one of these based on what fits best:
-- \`flowchart LR\` for data/request flows (e.g. API routes, auth flows)
-- \`sequenceDiagram\` for multi-component interactions
-- \`graph TD\` for file dependency or call hierarchy
+Generate a Mermaid diagram showing the flow of changes. Wrap it in a \`\`\`mermaid code block.
 
-Wrap it in a mermaid code block. Keep it simple — max 8-10 nodes. Only include if the PR has meaningful logic flow (skip for config-only or single-line changes).
+IMPORTANT Mermaid syntax rules — follow EXACTLY:
+- Use \`flowchart LR\` (not \`graph LR\`)
+- Node IDs must be simple alphanumeric (A, B, C or short words like Input, Process)
+- Edge labels use: \`A -->|label text| B\` (pipe before and after label, NO \`>\` after the closing pipe)
+- Nodes with text: \`A[My Node]\` or \`A(My Node)\` or \`A{My Node}\`
+- Do NOT use special characters like /, \\, or | inside node text brackets
+- Do NOT use \`|>\` anywhere — that is invalid syntax
+- Keep it simple: max 6-8 nodes, short labels
+
+Valid example:
+\`\`\`mermaid
+flowchart LR
+  A[User Input] --> B[Validate]
+  B -->|valid| C[Process]
+  B -->|invalid| D[Error]
+  C --> E[Save to DB]
+  E --> F[Return Response]
+\`\`\`
+
+Only include if the PR has meaningful logic flow. Skip for config-only or single-line changes.
 
 ### What's Done Well
 2-3 specific positives referencing actual code from the diff.
@@ -76,5 +92,24 @@ ${diff.slice(0, 12000)}
 Now produce the complete, final code review in markdown format. Be detailed, specific, and genuinely helpful.`,
   });
 
-  return text;
+  return sanitizeMermaid(text);
+}
+
+/**
+ * Fix common Mermaid syntax errors that LLMs produce.
+ */
+function sanitizeMermaid(text: string): string {
+  return text.replace(/```mermaid([\s\S]*?)```/g, (match, content: string) => {
+    let fixed = content
+      // Fix "|label|>" → "|label|" (most common LLM error)
+      .replace(/\|([^|]+)\|>/g, '|$1|')
+      // Fix "-->|label|>" → "-->|label|"
+      .replace(/-->\|([^|]+)\|>/g, '-->|$1|')
+      // Fix "|>" at end of lines
+      .replace(/\|>\s*$/gm, '|')
+      // Remove slashes in node text brackets that break parsing
+      .replace(/\[([^\]]*)\/([^\]]*)\]/g, '[$1 or $2]')
+      .replace(/\[([^\]]*)\\([^\]]*)\]/g, '[$1 $2]');
+    return '```mermaid' + fixed + '```';
+  });
 }
