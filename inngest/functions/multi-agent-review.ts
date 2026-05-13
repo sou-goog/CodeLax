@@ -2,7 +2,7 @@ import { inngest } from "../client";
 import { Octokit } from "octokit";
 import prisma from "@/lib/db";
 import { retrieveContext } from "@/module/ai/lib/rag";
-import { prepareDiffForAgents, getChangedFilenames } from "@/module/ai/lib/diff-parser";
+import { prepareDiffForAgents, getChangedFilenames, calculateComplexityScore } from "@/module/ai/lib/diff-parser";
 import { runPlanner } from "@/module/ai/agents/planner";
 import { runSecurityAgent } from "@/module/ai/agents/security";
 import { runPerformanceAgent } from "@/module/ai/agents/performance";
@@ -69,9 +69,12 @@ export const generateReviewMultiAgent = inngest.createFunction(
     });
 
     // Step 2: Prepare — parse diff, retrieve RAG context, and plan agents (combined for speed)
-    const { processedDiff, filesSummary, context, plan } = await step.run("prepare", async () => {
+    const { processedDiff, filesSummary, context, plan, complexity } = await step.run("prepare", async () => {
       const result = prepareDiffForAgents(diff, 25000);
       console.log(`[review] ${result.filesSummary}`);
+
+      const complexityResult = calculateComplexityScore(diff);
+      console.log(`[review] Complexity: ${complexityResult.score}/100 (${complexityResult.level})`);
 
       const changedFiles = getChangedFilenames(diff);
       const query = `${title}\n${description}\nChanged files: ${changedFiles.join(", ")}`;
@@ -84,6 +87,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
         filesSummary: result.filesSummary,
         context: ctx,
         plan: p,
+        complexity: complexityResult,
       };
     });
 
@@ -94,7 +98,9 @@ export const generateReviewMultiAgent = inngest.createFunction(
     const agentsToRun = plannerAgents.filter((a) => configAgents.includes(a as any));
 
     const reports = await step.run("run-specialist-agents", async () => {
-      const instructions = config.instructions || [];
+      const languages = plan.languages?.length ? plan.languages : [];
+      const langContext = languages.length ? [`This PR is primarily written in: ${languages.join(", ")}. Tailor your analysis to ${languages[0]}-specific patterns and best practices.`] : [];
+      const instructions = [...langContext, ...(config.instructions || [])];
       const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
         security: () => runSecurityAgent(processedDiff, context, title, instructions),
         performance: () => runPerformanceAgent(processedDiff, context, title, instructions),
@@ -139,10 +145,11 @@ export const generateReviewMultiAgent = inngest.createFunction(
     }).catch(() => {});
 
     // Step 7: Synthesizer Agent — produces final markdown review
+    const complexityBadge = `> **Complexity:** ${complexity.score}/100 (${complexity.level}) | **Files:** ${complexity.breakdown.files} | **Changes:** +${complexity.breakdown.additions}/-${complexity.breakdown.deletions} | **Hotspots:** ${complexity.breakdown.hotspotFiles}\n\n`;
     const reviewPrefix = isIncremental ? "## 🔄 Incremental Review (new commits only)\n\n" : "";
     const finalReview = await step.run("synthesizer", async () => {
       const review = await runSynthesizer(criticReport, processedDiff, title, description, filesSummary);
-      return reviewPrefix + review;
+      return reviewPrefix + complexityBadge + review;
     });
 
     // Step 5: Post review with inline comments + save to DB

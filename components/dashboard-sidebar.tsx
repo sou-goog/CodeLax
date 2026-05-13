@@ -12,6 +12,7 @@ const navItems = [
     { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
     { title: "Repositories", url: "/dashboard/repository", icon: FolderOpen },
     { title: "AI Reviews", url: "/dashboard/reviews", icon: BrainCircuit },
+    { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3 },
     { title: "Settings", url: "/dashboard/settings", icon: Settings },
 ];
 

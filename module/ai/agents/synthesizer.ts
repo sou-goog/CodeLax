@@ -38,6 +38,14 @@ For each finding:
 
 ---
 
+### Changes Diagram
+Generate a Mermaid diagram showing the flow of changes. Use one of these based on what fits best:
+- \`flowchart LR\` for data/request flows (e.g. API routes, auth flows)
+- \`sequenceDiagram\` for multi-component interactions
+- \`graph TD\` for file dependency or call hierarchy
+
+Wrap it in a mermaid code block. Keep it simple — max 8-10 nodes. Only include if the PR has meaningful logic flow (skip for config-only or single-line changes).
+
 ### What's Done Well
 2-3 specific positives referencing actual code from the diff.
 

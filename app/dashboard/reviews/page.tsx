@@ -1,8 +1,8 @@
 "use client";
 
 import React from 'react';
-import { getReviews } from "@/module/review/action";
-import { GitPullRequest, ExternalLink, ShieldAlert, Zap, BrainCircuit, Paintbrush, Calendar } from "lucide-react";
+import { getReviews, retriggerReview } from "@/module/review/action";
+import { GitPullRequest, ExternalLink, ShieldAlert, Zap, BrainCircuit, Paintbrush, Calendar, RotateCw } from "lucide-react";
 import { formatDistanceToNow } from 'date-fns';
 import { useQuery } from "@tanstack/react-query";
 
@@ -42,11 +42,25 @@ const severityConfig: Record<string, { color: string; dot: string; border: strin
 };
 
 export default function ReviewsPage() {
-  const { data: reviews = [], isLoading } = useQuery<Review[]>({
+  const [retriggeringId, setRetriggeringId] = React.useState<string | null>(null);
+
+  const { data: reviews = [], isLoading, refetch } = useQuery<Review[]>({
     queryKey: ["reviews"],
     queryFn: async () => await getReviews() as unknown as Review[],
     refetchOnWindowFocus: false,
   });
+
+  const handleRetrigger = async (reviewId: string) => {
+    try {
+      setRetriggeringId(reviewId);
+      await retriggerReview(reviewId);
+      await refetch();
+    } catch (e) {
+      console.error("Failed to retrigger review:", e);
+    } finally {
+      setRetriggeringId(null);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -102,14 +116,24 @@ export default function ReviewsPage() {
                       )}
                     </h3>
                   </div>
-                  <a
-                    href={review.prUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="bg-muted border border-border text-foreground text-xs px-4 py-2 rounded-lg font-medium hover:border-violet-500/30 transition-colors flex items-center gap-2 w-fit"
-                  >
-                    View PR <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleRetrigger(review.id)}
+                      disabled={retriggeringId === review.id}
+                      className="bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs px-4 py-2 rounded-lg font-medium hover:bg-violet-500/20 transition-colors flex items-center gap-2 w-fit disabled:opacity-50"
+                    >
+                      <RotateCw className={`w-3.5 h-3.5 ${retriggeringId === review.id ? 'animate-spin' : ''}`} />
+                      {retriggeringId === review.id ? 'Re-running...' : 'Re-run Review'}
+                    </button>
+                    <a
+                      href={review.prUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="bg-muted border border-border text-foreground text-xs px-4 py-2 rounded-lg font-medium hover:border-violet-500/30 transition-colors flex items-center gap-2 w-fit"
+                    >
+                      View PR <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
                 </div>
 
                 {/* Findings */}

@@ -142,3 +142,45 @@ export function prepareDiffForAgents(
 export function getChangedFilenames(rawDiff: string): string[] {
   return parseDiffByFile(rawDiff).map((f) => f.filename);
 }
+
+/**
+ * Calculate a PR complexity score (0–100) based on multiple signals.
+ */
+export function calculateComplexityScore(rawDiff: string): {
+  score: number;
+  level: "trivial" | "small" | "moderate" | "complex" | "massive";
+  breakdown: { files: number; additions: number; deletions: number; hotspotFiles: number };
+} {
+  const files = parseDiffByFile(rawDiff);
+  const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0);
+  const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0);
+  const totalChanges = totalAdditions + totalDeletions;
+  const fileCount = files.length;
+
+  // Hotspot detection: files with lots of logic changes
+  const HOTSPOT_PATTERNS = [/\.ts$/, /\.tsx$/, /\.js$/, /\.jsx$/, /\.py$/, /\.go$/, /\.rs$/];
+  const hotspotFiles = files.filter(
+    (f) => HOTSPOT_PATTERNS.some((p) => p.test(f.filename)) && (f.additions + f.deletions) > 20
+  ).length;
+
+  // Scoring: weighted formula
+  let score = 0;
+  score += Math.min(fileCount * 5, 30);        // Files: 0-30 points
+  score += Math.min(totalChanges * 0.05, 35);   // Lines: 0-35 points
+  score += Math.min(hotspotFiles * 10, 25);      // Hotspots: 0-25 points
+  score += totalDeletions > totalAdditions * 2 ? 5 : 0;  // Major refactor: +5
+  score += fileCount > 10 ? 5 : 0;              // Wide PR: +5
+  score = Math.min(Math.round(score), 100);
+
+  const level: "trivial" | "small" | "moderate" | "complex" | "massive" =
+    score <= 10 ? "trivial" :
+    score <= 25 ? "small" :
+    score <= 50 ? "moderate" :
+    score <= 75 ? "complex" : "massive";
+
+  return {
+    score,
+    level,
+    breakdown: { files: fileCount, additions: totalAdditions, deletions: totalDeletions, hotspotFiles },
+  };
+}

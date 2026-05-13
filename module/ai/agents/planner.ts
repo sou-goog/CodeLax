@@ -5,7 +5,7 @@ export async function runPlanner(
   title: string,
   description: string,
   diff: string
-): Promise<{ agentsToActivate: string[]; planNotes: string }> {
+): Promise<{ agentsToActivate: string[]; planNotes: string; languages: string[] }> {
   const text = await generateTextWithFallback({
     model: getModel("planner"),
     temperature: 0.1,
@@ -38,8 +38,10 @@ ${diff.slice(0, 3000)}
 Decide which agents to activate. Return JSON:
 {
   "agentsToActivate": ["agent1", "agent2", ...],
+  "languages": ["typescript", "python", ...],
   "planNotes": "Brief explanation of why each agent was chosen"
-}`,
+}
+The "languages" field should list the primary programming languages detected in the diff (e.g. "typescript", "javascript", "python", "go", "rust", "java", "css", "sql").`,
   });
   
   return parseJsonFromText(text);
