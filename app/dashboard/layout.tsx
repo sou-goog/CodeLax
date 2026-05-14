@@ -3,6 +3,7 @@ import { requireAuth } from "@/module/auth/utils/auth-utils"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { Terminal } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { CommandPalette } from "@/components/command-palette"
 
 const DashboardLayout = async(
     {children}: {
@@ -18,8 +19,14 @@ const DashboardLayout = async(
                 <Terminal className="w-5 h-5 text-violet-500" />
                 <span>CodeLax</span>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+                <kbd className="hidden sm:flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/60 border border-border px-2.5 py-1 rounded-lg font-mono cursor-pointer hover:bg-muted transition-colors">
+                    <span className="text-xs">⌘</span>K
+                </kbd>
+                <ThemeToggle />
+            </div>
         </header>
+        <CommandPalette />
         <DashboardSidebar />
         <main className="md:ml-64 p-6 min-h-[calc(100vh-49px)] overflow-y-auto">
             <div className="max-w-7xl mx-auto">

@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import { getReviewById, retriggerReview } from "@/module/review/action";
 import { createAutoFixPR } from "@/module/review/action/autofix";
 import { exportReviewAsMarkdown } from "@/module/review/action/export";
+import { getReviewDiff, type DiffFile } from "@/module/review/action/diff";
+import { DiffViewer } from "@/components/diff-viewer";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
 import {
@@ -220,7 +222,9 @@ export default function ReviewDetailPage() {
   const [autofixing, setAutofixing] = React.useState(false);
   const [autofixResult, setAutofixResult] = React.useState<{ prUrl: string; filesFixed: number } | null>(null);
   const [exporting, setExporting] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState<"review" | "findings">("review");
+  const [activeTab, setActiveTab] = React.useState<"review" | "findings" | "diff">("review");
+  const [diffFiles, setDiffFiles] = React.useState<DiffFile[] | null>(null);
+  const [diffLoading, setDiffLoading] = React.useState(false);
 
   const { data: review, isLoading } = useQuery({
     queryKey: ["review", reviewId],
@@ -472,24 +476,71 @@ export default function ReviewDetailPage() {
       {/* Tabs */}
       <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm py-2 -mx-1 px-1">
         <div className="flex gap-1 bg-muted/60 p-1 rounded-xl w-fit border border-border/40">
-          {(["review", "findings"] as const).map((tab) => (
+          {(["review", "findings", "diff"] as const).map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={async () => {
+                setActiveTab(tab);
+                if (tab === "diff" && !diffFiles && !diffLoading) {
+                  setDiffLoading(true);
+                  try {
+                    const files = await getReviewDiff(reviewId);
+                    setDiffFiles(files);
+                  } catch (e) {
+                    console.error("Failed to load diff:", e);
+                    setDiffFiles([]);
+                  } finally {
+                    setDiffLoading(false);
+                  }
+                }
+              }}
               className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === tab
                   ? "bg-card text-foreground shadow-sm border border-border/60"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {tab === "review" ? "Full Review" : `Findings (${findings.length})`}
+              {tab === "review" ? "Full Review" : tab === "findings" ? `Findings (${findings.length})` : "Diff"}
             </button>
           ))}
         </div>
       </div>
 
       {/* Tab content */}
-      {activeTab === "review" ? (
+      {activeTab === "diff" ? (
+        <div>
+          {diffLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="flex flex-col items-center gap-4">
+                <div className="relative w-12 h-12">
+                  <div className="absolute inset-0 rounded-full border-2 border-violet-500/20" />
+                  <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+                </div>
+                <p className="text-sm text-muted-foreground">Loading diff from GitHub...</p>
+              </div>
+            </div>
+          ) : diffFiles && diffFiles.length > 0 ? (
+            <DiffViewer
+              files={diffFiles}
+              findings={findings.map((f) => ({
+                id: f.id,
+                file: f.file,
+                title: f.title,
+                severity: f.severity,
+                startLine: f.startLine ?? null,
+                endLine: f.endLine ?? null,
+                description: f.description,
+              }))}
+            />
+          ) : (
+            <div className="bg-card border border-border rounded-2xl p-16 text-center">
+              <FileCode2 className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
+              <p className="text-foreground font-medium">No diff available</p>
+              <p className="text-sm text-muted-foreground mt-1">The PR may have been closed or merged.</p>
+            </div>
+          )}
+        </div>
+      ) : activeTab === "review" ? (
         <div className="bg-card border border-border rounded-2xl p-6 md:p-10 shadow-sm">
           {review.review ? (
             <article className="max-w-none prose-sm">
