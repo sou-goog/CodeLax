@@ -5,6 +5,8 @@ import { getReviews, retriggerReview } from "@/module/review/action";
 import { GitPullRequest, ExternalLink, ShieldAlert, Zap, BrainCircuit, Paintbrush, Calendar, RotateCw, Clock, CheckCircle2, XCircle, Loader2, SkipForward } from "lucide-react";
 import { formatDistanceToNow } from 'date-fns';
 import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { ReviewProgress } from "@/components/review-progress";
 
 interface ReviewFinding {
   id: string;
@@ -60,6 +62,7 @@ const severityConfig: Record<string, { color: string; dot: string; border: strin
 };
 
 export default function ReviewsPage() {
+  const router = useRouter();
   const [retriggeringId, setRetriggeringId] = React.useState<string | null>(null);
 
   const { data: reviews = [], isLoading, refetch } = useQuery<Review[]>({
@@ -139,7 +142,10 @@ export default function ReviewsPage() {
                         </>
                       )}
                     </div>
-                    <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                    <h3
+                      onClick={() => router.push(`/dashboard/reviews/${review.id}`)}
+                      className="text-lg font-bold text-foreground flex items-center gap-2 cursor-pointer hover:text-violet-400 transition-colors"
+                    >
                       <GitPullRequest className="w-5 h-5 text-violet-400" />
                       {review.prTitle}
                       {criticalCount > 0 && (
@@ -153,6 +159,11 @@ export default function ReviewsPage() {
                         </span>
                       )}
                     </h3>
+                    {(review.status === "in_progress" || review.status === "pending") && (
+                      <div className="mt-2">
+                        <ReviewProgress currentStep={(review as any).currentStep} compact />
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <button

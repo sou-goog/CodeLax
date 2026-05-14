@@ -19,6 +19,19 @@ export async function getReviews() {
     });
 }
 
+export async function getReviewById(reviewId: string) {
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session) throw new Error("Unauthorized");
+
+    return await prisma.review.findFirst({
+        where: { id: reviewId, repository: { userId: session.user.id } },
+        include: {
+            repository: true,
+            findings: { orderBy: { createdAt: "asc" } },
+        },
+    });
+}
+
 export async function retriggerReview(reviewId: string) {
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session) throw new Error("Unauthorized");

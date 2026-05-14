@@ -47,6 +47,15 @@ export const generateReviewMultiAgent = inngest.createFunction(
     const { owner, repo, prNumber, userId, action, before, after } = event.data;
     const startTime = Date.now();
 
+    // Helper to update progress step
+    const updateStep = async (reviewId: string | undefined, stepName: string) => {
+      if (!reviewId) return;
+      await prisma.review.update({
+        where: { id: reviewId },
+        data: { currentStep: stepName },
+      }).catch(() => {});
+    };
+
     // Step 0: Create pending review record for status tracking
     const reviewRecord = await step.run("create-pending-review", async () => {
       const repository = await prisma.repository.findFirst({
@@ -61,6 +70,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
           prTitle: `PR #${prNumber}`,
           prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
           status: "in_progress",
+          currentStep: "fetching",
           startedAt: new Date(),
         }
       });
@@ -173,6 +183,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
     });
 
     // Step 2: Prepare — parse diff, retrieve RAG context, and plan agents (combined for speed)
+    await updateStep(reviewRecord?.id, "planning");
     const { processedDiff, filesSummary, context, plan, complexity } = await step.run("prepare", async () => {
       const result = prepareDiffForAgents(diff, 25000, config.ignore);
       console.log(`[review] ${result.filesSummary}`);
@@ -201,6 +212,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
     const plannerAgents = plan.agentsToActivate || ["security", "performance", "logic", "style"];
     const agentsToRun = plannerAgents.filter((a) => configAgents.includes(a as any));
 
+    await updateStep(reviewRecord?.id, `agents:${agentsToRun.join(",")}`);
     const reports = await step.run("run-specialist-agents", async () => {
       const languages = plan.languages?.length ? plan.languages : [];
       const langContext = languages.length ? [`This PR is primarily written in: ${languages.join(", ")}. Tailor your analysis to ${languages[0]}-specific patterns and best practices.`] : [];
@@ -234,6 +246,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
     });
 
     // Step 6: Critic Agent — deduplicates and filters findings
+    await updateStep(reviewRecord?.id, "critic");
     const criticReport = await step.run("critic", () =>
       runCritic(reports)
     );
@@ -248,6 +261,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
       overallRisk: criticReport.overallRisk,
     }).catch(() => {});
 
+    await updateStep(reviewRecord?.id, "synthesizer");
     // Step 7: Synthesizer Agent — produces final markdown review
     const complexityBadge = `> **Complexity:** ${complexity.score}/100 (${complexity.level}) | **Files:** ${complexity.breakdown.files} | **Changes:** +${complexity.breakdown.additions}/-${complexity.breakdown.deletions} | **Hotspots:** ${complexity.breakdown.hotspotFiles}\n\n`;
     const reviewPrefix = isIncremental ? "## 🔄 Incremental Review (new commits only)\n\n" : "";
@@ -256,6 +270,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
       return reviewPrefix + complexityBadge + review;
     });
 
+    await updateStep(reviewRecord?.id, "posting");
     // Step 8: Post review with inline comments, auto-labels, check run, save to DB
     const durationMs = Date.now() - startTime;
     await step.run("post-and-save", async () => {

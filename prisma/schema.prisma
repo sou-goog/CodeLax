@@ -92,6 +92,7 @@ model review {
   prUrl        String
   review       String     @default("")
   status       String     @default("pending")
+  currentStep  String?
   diffHash     String?
   startedAt    DateTime?
   completedAt  DateTime?
