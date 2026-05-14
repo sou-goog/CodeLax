@@ -2,7 +2,7 @@ import { inngest } from "../client";
 import { Octokit } from "octokit";
 import prisma from "@/lib/db";
 import { retrieveContext } from "@/module/ai/lib/rag";
-import { prepareDiffForAgents, getChangedFilenames, calculateComplexityScore } from "@/module/ai/lib/diff-parser";
+import { prepareDiffForAgents, getChangedFilenames, calculateComplexityScore, hashDiff } from "@/module/ai/lib/diff-parser";
 import { runPlanner } from "@/module/ai/agents/planner";
 import { runSecurityAgent } from "@/module/ai/agents/security";
 import { runPerformanceAgent } from "@/module/ai/agents/performance";
@@ -15,11 +15,56 @@ import { fetchRepoConfig, type CodeLaxConfig } from "@/module/ai/lib/config";
 import { sendSlackNotification } from "@/module/ai/lib/notifications";
 
 export const generateReviewMultiAgent = inngest.createFunction(
-  { id: "generate-review-multi-agent", concurrency: 3 },
+  {
+    id: "generate-review-multi-agent",
+    concurrency: 3,
+    retries: 2,
+    onFailure: async ({ event }) => {
+      // Mark the most recent in_progress review for this PR as failed
+      try {
+        const { owner, repo, prNumber } = event.data.event.data;
+        const repository = await prisma.repository.findFirst({
+          where: { owner, name: repo },
+        });
+        if (repository) {
+          await prisma.review.updateMany({
+            where: {
+              repositoryId: repository.id,
+              prNumber,
+              status: "in_progress",
+            },
+            data: { status: "failed" },
+          });
+        }
+      } catch (e) {
+        console.error("Failed to mark review as failed:", e);
+      }
+    },
+  },
   { event: "pr.review.requested" },
 
   async ({ event, step }) => {
     const { owner, repo, prNumber, userId, action, before, after } = event.data;
+    const startTime = Date.now();
+
+    // Step 0: Create pending review record for status tracking
+    const reviewRecord = await step.run("create-pending-review", async () => {
+      const repository = await prisma.repository.findFirst({
+        where: { owner, name: repo }
+      });
+      if (!repository) return null;
+
+      return await prisma.review.create({
+        data: {
+          repositoryId: repository.id,
+          prNumber,
+          prTitle: `PR #${prNumber}`,
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          status: "in_progress",
+          startedAt: new Date(),
+        }
+      });
+    });
 
     // Step 1: Fetch PR data + repo config + get GitHub token
     const { diff, title, description, token, config, isIncremental } = await step.run("fetch-pr-data", async () => {
@@ -68,9 +113,68 @@ export const generateReviewMultiAgent = inngest.createFunction(
       };
     });
 
+    // Update review title now that we have it
+    if (reviewRecord) {
+      await step.run("update-review-title", async () => {
+        await prisma.review.update({
+          where: { id: reviewRecord.id },
+          data: { prTitle: title },
+        });
+      });
+    }
+
+    // Step 1.5: Dedup check — skip if we already reviewed this exact diff
+    const diffDigest = hashDiff(diff);
+    const isDuplicate = await step.run("dedup-check", async () => {
+      const existing = await prisma.review.findFirst({
+        where: {
+          diffHash: diffDigest,
+          status: "completed",
+          id: { not: reviewRecord?.id ?? "" },
+        },
+      });
+      return !!existing;
+    });
+
+    if (isDuplicate) {
+      if (reviewRecord) {
+        await step.run("mark-skipped", async () => {
+          await prisma.review.update({
+            where: { id: reviewRecord.id },
+            data: { status: "skipped", review: "Skipped: identical diff already reviewed." },
+          });
+        });
+      }
+      return { success: true, skipped: true, reason: "duplicate diff" };
+    }
+
+    // Create GitHub Check Run (in-progress)
+    const checkRunId = await step.run("create-check-run", async () => {
+      try {
+        const octokit = new Octokit({ auth: token });
+        const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+        const { data: check } = await octokit.rest.checks.create({
+          owner,
+          repo,
+          name: "CodeLax AI Review",
+          head_sha: pr.head.sha,
+          status: "in_progress",
+          started_at: new Date().toISOString(),
+          output: {
+            title: "AI Review in progress...",
+            summary: "CodeLax is analyzing your pull request with multiple specialist agents.",
+          },
+        });
+        return check.id;
+      } catch (e) {
+        console.error("Failed to create check run (may need checks:write permission):", e);
+        return null;
+      }
+    });
+
     // Step 2: Prepare — parse diff, retrieve RAG context, and plan agents (combined for speed)
     const { processedDiff, filesSummary, context, plan, complexity } = await step.run("prepare", async () => {
-      const result = prepareDiffForAgents(diff, 25000);
+      const result = prepareDiffForAgents(diff, 25000, config.ignore);
       console.log(`[review] ${result.filesSummary}`);
 
       const complexityResult = calculateComplexityScore(diff);
@@ -152,7 +256,8 @@ export const generateReviewMultiAgent = inngest.createFunction(
       return reviewPrefix + complexityBadge + review;
     });
 
-    // Step 5: Post review with inline comments + save to DB
+    // Step 8: Post review with inline comments, auto-labels, check run, save to DB
+    const durationMs = Date.now() - startTime;
     await step.run("post-and-save", async () => {
       const octokit = new Octokit({ auth: token });
 
@@ -201,20 +306,76 @@ export const generateReviewMultiAgent = inngest.createFunction(
         }
       }
 
-      // Save to database
-      const repository = await prisma.repository.findFirst({
-        where: { owner, name: repo }
-      });
+      // Auto-label PR based on findings
+      const labels: string[] = [];
+      const hasCritical = criticReport.verifiedFindings.some((f) => f.severity === "critical");
+      const hasHigh = criticReport.verifiedFindings.some((f) => f.severity === "high");
+      const hasSecurity = criticReport.verifiedFindings.some((f) => f.agentName === "security");
+      if (hasCritical) labels.push("critical-issues");
+      if (hasHigh && !hasCritical) labels.push("needs-fix");
+      if (hasSecurity) labels.push("security-concern");
+      if (criticReport.verifiedFindings.length === 0) labels.push("ai-approved");
 
-      if (repository) {
-        await prisma.review.create({
+      if (labels.length > 0) {
+        try {
+          // Ensure labels exist
+          for (const label of labels) {
+            try {
+              await octokit.rest.issues.getLabel({ owner, repo, name: label });
+            } catch {
+              const colorMap: Record<string, string> = {
+                "critical-issues": "d73a4a",
+                "needs-fix": "e4a221",
+                "security-concern": "b60205",
+                "ai-approved": "0e8a16",
+              };
+              await octokit.rest.issues.createLabel({
+                owner, repo, name: label,
+                color: colorMap[label] || "ededed",
+                description: `Auto-applied by CodeLax AI review`,
+              });
+            }
+          }
+          await octokit.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels });
+        } catch (e) {
+          console.error("Failed to add labels:", e);
+        }
+      }
+
+      // Complete the GitHub Check Run
+      if (checkRunId) {
+        try {
+          const conclusion = hasCritical ? "failure" : hasHigh ? "neutral" : "success";
+          const findingsCount = criticReport.verifiedFindings.length;
+          await octokit.rest.checks.update({
+            owner,
+            repo,
+            check_run_id: checkRunId,
+            status: "completed",
+            conclusion,
+            completed_at: new Date().toISOString(),
+            output: {
+              title: findingsCount === 0
+                ? "All clear — no issues found"
+                : `${findingsCount} finding${findingsCount > 1 ? "s" : ""} (${criticReport.overallRisk} risk)`,
+              summary: `**Risk Level:** ${criticReport.overallRisk.toUpperCase()}\n**Findings:** ${findingsCount}\n**Duration:** ${Math.round(durationMs / 1000)}s\n**Complexity:** ${complexity.score}/100 (${complexity.level})`,
+            },
+          });
+        } catch (e) {
+          console.error("Failed to update check run:", e);
+        }
+      }
+
+      // Save/update review in database
+      if (reviewRecord) {
+        await prisma.review.update({
+          where: { id: reviewRecord.id },
           data: {
-            repositoryId: repository.id,
-            prNumber,
-            prTitle: title,
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
             review: finalReview,
             status: "completed",
+            diffHash: diffDigest,
+            completedAt: new Date(),
+            durationMs,
             findings: {
               create: criticReport.verifiedFindings.map((f) => ({
                 agentName: f.agentName,
@@ -228,9 +389,40 @@ export const generateReviewMultiAgent = inngest.createFunction(
             }
           }
         });
+      } else {
+        // Fallback: no pending record (shouldn't happen)
+        const repository = await prisma.repository.findFirst({
+          where: { owner, name: repo }
+        });
+        if (repository) {
+          await prisma.review.create({
+            data: {
+              repositoryId: repository.id,
+              prNumber,
+              prTitle: title,
+              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+              review: finalReview,
+              status: "completed",
+              diffHash: diffDigest,
+              completedAt: new Date(),
+              durationMs,
+              findings: {
+                create: criticReport.verifiedFindings.map((f) => ({
+                  agentName: f.agentName,
+                  severity: f.severity,
+                  confidence: f.confidence,
+                  file: f.file,
+                  title: f.title,
+                  description: f.description,
+                  suggestion: f.suggestion
+                }))
+              }
+            }
+          });
+        }
       }
     });
 
-    return { success: true, findingsCount: criticReport.verifiedFindings.length };
+    return { success: true, findingsCount: criticReport.verifiedFindings.length, durationMs };
   }
 );

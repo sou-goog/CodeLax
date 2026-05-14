@@ -90,14 +90,19 @@ model review {
   prNumber     Int
   prTitle      String
   prUrl        String
-  review       String
-  status       String     @default("completed")
+  review       String     @default("")
+  status       String     @default("pending")
+  diffHash     String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  durationMs   Int?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   repository   repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   findings     review_finding[]
 
   @@index([repositoryId])
+  @@index([diffHash])
 }
 
 model review_finding {

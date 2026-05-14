@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { getReviews, retriggerReview } from "@/module/review/action";
-import { GitPullRequest, ExternalLink, ShieldAlert, Zap, BrainCircuit, Paintbrush, Calendar, RotateCw } from "lucide-react";
+import { GitPullRequest, ExternalLink, ShieldAlert, Zap, BrainCircuit, Paintbrush, Calendar, RotateCw, Clock, CheckCircle2, XCircle, Loader2, SkipForward } from "lucide-react";
 import { formatDistanceToNow } from 'date-fns';
 import { useQuery } from "@tanstack/react-query";
 
@@ -21,9 +21,27 @@ interface Review {
   id: string;
   prTitle: string;
   prUrl: string;
+  status: string;
+  durationMs: number | null;
   createdAt: string;
   repository: { fullName: string };
   findings: ReviewFinding[];
+}
+
+const statusConfig: Record<string, { icon: React.ReactNode; label: string; color: string; bg: string }> = {
+  pending: { icon: <Clock className="w-3.5 h-3.5" />, label: "Pending", color: "text-zinc-400", bg: "bg-zinc-500/10 border-zinc-500/20" },
+  in_progress: { icon: <Loader2 className="w-3.5 h-3.5 animate-spin" />, label: "In Progress", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
+  completed: { icon: <CheckCircle2 className="w-3.5 h-3.5" />, label: "Completed", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
+  failed: { icon: <XCircle className="w-3.5 h-3.5" />, label: "Failed", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" },
+  skipped: { icon: <SkipForward className="w-3.5 h-3.5" />, label: "Skipped", color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
+};
+
+function formatDuration(ms: number | null): string {
+  if (!ms) return "";
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 const agentConfig: Record<string, { icon: React.ReactNode; color: string; bg: string }> = {
@@ -48,6 +66,11 @@ export default function ReviewsPage() {
     queryKey: ["reviews"],
     queryFn: async () => await getReviews() as unknown as Review[],
     refetchOnWindowFocus: false,
+    refetchInterval: (query) => {
+      const data = query.state.data as Review[] | undefined;
+      const hasInProgress = data?.some((r) => r.status === "in_progress" || r.status === "pending");
+      return hasInProgress ? 5000 : false;
+    },
   });
 
   const handleRetrigger = async (reviewId: string) => {
@@ -95,11 +118,26 @@ export default function ReviewsPage() {
                 {/* Review Header */}
                 <div className="px-6 py-4 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <div className="flex items-center text-xs text-muted-foreground mb-2 gap-2">
+                    <div className="flex items-center text-xs text-muted-foreground mb-2 gap-2 flex-wrap">
                       <span className="font-medium text-foreground">{review.repository.fullName}</span>
                       <span>·</span>
                       <Calendar className="w-3 h-3" />
                       {formatDistanceToNow(new Date(review.createdAt), { addSuffix: true })}
+                      <span>·</span>
+                      {(() => {
+                        const st = statusConfig[review.status] || statusConfig.completed;
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${st.color} ${st.bg}`}>
+                            {st.icon} {st.label}
+                          </span>
+                        );
+                      })()}
+                      {review.durationMs && (
+                        <>
+                          <span>·</span>
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDuration(review.durationMs)}</span>
+                        </>
+                      )}
                     </div>
                     <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
                       <GitPullRequest className="w-5 h-5 text-violet-400" />

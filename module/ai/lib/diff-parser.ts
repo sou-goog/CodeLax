@@ -39,8 +39,24 @@ const LOW_PRIORITY_PATTERNS = [
   /\.env\.example$/,
 ];
 
-function shouldSkip(filename: string): boolean {
-  return SKIP_PATTERNS.some((p) => p.test(filename));
+function shouldSkip(filename: string, customIgnore?: string[]): boolean {
+  if (SKIP_PATTERNS.some((p) => p.test(filename))) return true;
+  if (customIgnore?.length) {
+    return customIgnore.some((pattern) => matchGlob(pattern, filename));
+  }
+  return false;
+}
+
+/**
+ * Simple glob matcher: supports * (any chars) and ** (any path segments).
+ */
+function matchGlob(pattern: string, filename: string): boolean {
+  const regexStr = pattern
+    .replace(/\./g, "\\.")
+    .replace(/\*\*/g, "__DOUBLESTAR__")
+    .replace(/\*/g, "[^/]*")
+    .replace(/__DOUBLESTAR__/g, ".*");
+  return new RegExp(`^${regexStr}$`).test(filename);
 }
 
 function isLowPriority(filename: string): boolean {
@@ -50,7 +66,7 @@ function isLowPriority(filename: string): boolean {
 /**
  * Parse a unified diff string into per-file chunks.
  */
-export function parseDiffByFile(rawDiff: string): ParsedFile[] {
+export function parseDiffByFile(rawDiff: string, customIgnore?: string[]): ParsedFile[] {
   const files: ParsedFile[] = [];
   // Split on "diff --git" boundaries
   const chunks = rawDiff.split(/^diff --git /m).filter(Boolean);
@@ -61,7 +77,7 @@ export function parseDiffByFile(rawDiff: string): ParsedFile[] {
     if (!headerMatch) continue;
 
     const filename = headerMatch[2];
-    if (shouldSkip(filename)) continue;
+    if (shouldSkip(filename, customIgnore)) continue;
 
     let additions = 0;
     let deletions = 0;
@@ -88,9 +104,10 @@ export function parseDiffByFile(rawDiff: string): ParsedFile[] {
  */
 export function prepareDiffForAgents(
   rawDiff: string,
-  maxChars: number = 30000
+  maxChars: number = 30000,
+  customIgnore?: string[]
 ): { diff: string; filesSummary: string; totalFiles: number; includedFiles: number } {
-  const allFiles = parseDiffByFile(rawDiff);
+  const allFiles = parseDiffByFile(rawDiff, customIgnore);
   const totalFiles = allFiles.length;
 
   // Sort: high-priority source files first, low-priority config files last
@@ -141,6 +158,19 @@ export function prepareDiffForAgents(
  */
 export function getChangedFilenames(rawDiff: string): string[] {
   return parseDiffByFile(rawDiff).map((f) => f.filename);
+}
+
+/**
+ * Generate a fast hash of the diff content for dedup.
+ */
+export function hashDiff(diff: string): string {
+  let hash = 0;
+  for (let i = 0; i < diff.length; i++) {
+    const chr = diff.charCodeAt(i);
+    hash = ((hash << 5) - hash) + chr;
+    hash |= 0; // Convert to 32-bit integer
+  }
+  return hash.toString(36);
 }
 
 /**
