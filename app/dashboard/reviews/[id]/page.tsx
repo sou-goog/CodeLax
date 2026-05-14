@@ -4,13 +4,14 @@ import React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getReviewById, retriggerReview } from "@/module/review/action";
 import { createAutoFixPR } from "@/module/review/action/autofix";
+import { exportReviewAsMarkdown } from "@/module/review/action/export";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   ArrowLeft, GitPullRequest, ExternalLink, ShieldAlert, Zap,
   BrainCircuit, Paintbrush, Clock, CheckCircle2, XCircle,
   Loader2, SkipForward, RotateCw, FileCode2, AlertTriangle,
-  ChevronDown, ChevronRight, Timer, Hash, TrendingUp, Wrench,
+  ChevronDown, ChevronRight, Timer, Hash, TrendingUp, Wrench, Download,
 } from "lucide-react";
 import { ReviewProgress } from "@/components/review-progress";
 
@@ -218,6 +219,7 @@ export default function ReviewDetailPage() {
   const [retriggering, setRetriggering] = React.useState(false);
   const [autofixing, setAutofixing] = React.useState(false);
   const [autofixResult, setAutofixResult] = React.useState<{ prUrl: string; filesFixed: number } | null>(null);
+  const [exporting, setExporting] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<"review" | "findings">("review");
 
   const { data: review, isLoading } = useQuery({
@@ -251,6 +253,27 @@ export default function ReviewDetailPage() {
       alert(e.message || "Auto-fix failed");
     } finally {
       setAutofixing(false);
+    }
+  };
+
+  const handleExportMarkdown = async () => {
+    try {
+      setExporting(true);
+      const markdown = await exportReviewAsMarkdown(reviewId);
+      const blob = new Blob([markdown], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `codelax-review-${reviewId.slice(0, 8)}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      console.error("Export failed:", e);
+      alert(e.message || "Export failed");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -366,6 +389,14 @@ export default function ReviewDetailPage() {
               >
                 <RotateCw className={`w-3.5 h-3.5 ${retriggering ? "animate-spin" : ""}`} />
                 {retriggering ? "Running..." : "Re-run"}
+              </button>
+              <button
+                onClick={handleExportMarkdown}
+                disabled={exporting}
+                className="bg-card border border-border text-foreground text-xs px-4 py-2.5 rounded-lg font-medium hover:bg-muted transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                <Download className={`w-3.5 h-3.5 ${exporting ? "animate-bounce" : ""}`} />
+                {exporting ? "Exporting..." : "Export"}
               </button>
               <a
                 href={review.prUrl}

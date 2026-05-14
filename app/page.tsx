@@ -9,6 +9,7 @@ import {
     BarChart3, Layers, Search, Shield
 } from "lucide-react";
 import HeroAnimation from "@/components/hero-animation";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,7 @@ export default async function Home() {
                         <Link href="/about" className="text-sm text-muted-foreground hover:text-foreground transition-colors">About</Link>
                     </nav>
                     <div className="flex items-center gap-3">
+                        <ThemeToggle compact />
                         <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:block">Log In</Link>
                         <Link href="/login" className="px-5 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-500 transition-all hover:shadow-lg hover:shadow-violet-500/20">
                             Get a free trial
