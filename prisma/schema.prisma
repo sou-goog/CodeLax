@@ -114,6 +114,8 @@ model review_finding {
   severity    String
   confidence  Float
   file        String
+  startLine   Int?
+  endLine     Int?
   title       String
   description String
   suggestion  String

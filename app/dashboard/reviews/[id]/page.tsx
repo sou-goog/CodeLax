@@ -3,13 +3,14 @@
 import React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getReviewById, retriggerReview } from "@/module/review/action";
+import { createAutoFixPR } from "@/module/review/action/autofix";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   ArrowLeft, GitPullRequest, ExternalLink, ShieldAlert, Zap,
   BrainCircuit, Paintbrush, Clock, CheckCircle2, XCircle,
   Loader2, SkipForward, RotateCw, FileCode2, AlertTriangle,
-  ChevronDown, ChevronRight, Timer, Hash, TrendingUp,
+  ChevronDown, ChevronRight, Timer, Hash, TrendingUp, Wrench,
 } from "lucide-react";
 import { ReviewProgress } from "@/components/review-progress";
 
@@ -215,6 +216,8 @@ export default function ReviewDetailPage() {
   const router = useRouter();
   const reviewId = params.id as string;
   const [retriggering, setRetriggering] = React.useState(false);
+  const [autofixing, setAutofixing] = React.useState(false);
+  const [autofixResult, setAutofixResult] = React.useState<{ prUrl: string; filesFixed: number } | null>(null);
   const [activeTab, setActiveTab] = React.useState<"review" | "findings">("review");
 
   const { data: review, isLoading } = useQuery({
@@ -234,6 +237,20 @@ export default function ReviewDetailPage() {
       console.error("Failed to retrigger:", e);
     } finally {
       setRetriggering(false);
+    }
+  };
+
+  const handleAutoFix = async () => {
+    try {
+      setAutofixing(true);
+      setAutofixResult(null);
+      const result = await createAutoFixPR(reviewId);
+      setAutofixResult({ prUrl: result.prUrl, filesFixed: result.filesFixed });
+    } catch (e: any) {
+      console.error("Auto-fix failed:", e);
+      alert(e.message || "Auto-fix failed");
+    } finally {
+      setAutofixing(false);
     }
   };
 
@@ -331,7 +348,17 @@ export default function ReviewDetailPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {findings.length > 0 && review.status === "completed" && (
+                <button
+                  onClick={handleAutoFix}
+                  disabled={autofixing}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm shadow-emerald-500/20"
+                >
+                  <Wrench className={`w-3.5 h-3.5 ${autofixing ? "animate-bounce" : ""}`} />
+                  {autofixing ? "Creating PR..." : "Auto-Fix"}
+                </button>
+              )}
               <button
                 onClick={handleRetrigger}
                 disabled={retriggering}
@@ -384,6 +411,27 @@ export default function ReviewDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Auto-fix success banner */}
+      {autofixResult && (
+        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center shrink-0">
+            <Wrench className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-emerald-400">Auto-Fix PR Created</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Fixed {autofixResult.filesFixed} file{autofixResult.filesFixed !== 1 ? "s" : ""}. Review the changes before merging.</p>
+          </div>
+          <a
+            href={autofixResult.prUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2 shrink-0"
+          >
+            View Fix PR <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      )}
 
       {/* Progress tracker for in-progress reviews */}
       {(review.status === "in_progress" || review.status === "pending") && (

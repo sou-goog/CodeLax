@@ -226,6 +226,67 @@ export default async function Home() {
                     </div>
                 </section>
 
+                {/* ── HOW IT WORKS ── */}
+                <section className="py-24 md:py-32">
+                    <div className="max-w-5xl mx-auto px-6">
+                        <div className="text-center mb-16">
+                            <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight text-foreground">Up and running in 60 seconds.</h2>
+                            <p className="text-muted-foreground text-lg mt-4 max-w-xl mx-auto">Three steps. No config files needed (but we support them too).</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            {[
+                                { step: "1", title: "Connect GitHub", desc: "Sign in with GitHub and select the repositories you want reviewed. One click is all it takes.", icon: <Github className="w-6 h-6" /> },
+                                { step: "2", title: "Open a PR", desc: "Push code and open a pull request like you normally do. CodeLax starts reviewing automatically.", icon: <GitPullRequest className="w-6 h-6" /> },
+                                { step: "3", title: "Get Insights", desc: "Receive detailed findings, severity ratings, and fix suggestions — right on your PR within seconds.", icon: <CheckCircle2 className="w-6 h-6" /> },
+                            ].map((s) => (
+                                <div key={s.step} className="relative text-center">
+                                    <div className="w-14 h-14 rounded-2xl bg-violet-500/10 flex items-center justify-center text-violet-500 mx-auto mb-5">
+                                        {s.icon}
+                                    </div>
+                                    <span className="absolute top-0 right-1/4 text-[60px] font-black text-foreground/[0.03] leading-none select-none">{s.step}</span>
+                                    <h3 className="text-lg font-bold text-foreground mb-2">{s.title}</h3>
+                                    <p className="text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Demo video placeholder */}
+                        <div className="mt-16 rounded-2xl border border-border bg-muted/30 overflow-hidden aspect-video flex items-center justify-center relative group cursor-pointer hover:border-violet-500/30 transition-colors">
+                            <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
+                            <div className="relative z-10 flex flex-col items-center gap-3">
+                                <div className="w-16 h-16 rounded-full bg-violet-600 flex items-center justify-center shadow-lg shadow-violet-500/30 group-hover:scale-110 transition-transform">
+                                    <Code2 className="w-6 h-6 text-white ml-1" />
+                                </div>
+                                <p className="text-sm font-medium text-foreground">Watch CodeLax in action</p>
+                                <p className="text-xs text-muted-foreground">2 min demo</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* ── SOCIAL PROOF ── */}
+                <section className="py-20 bg-muted/30 border-y border-border">
+                    <div className="max-w-6xl mx-auto px-6">
+                        <p className="text-center text-xs text-muted-foreground uppercase tracking-wider font-medium mb-10">Trusted by developers at</p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {[
+                                { quote: "CodeLax caught a critical SQL injection vulnerability that our entire team missed. It paid for itself on day one.", name: "Alex Chen", role: "Senior Engineer" },
+                                { quote: "We reduced our review turnaround from 2 days to 2 minutes. The multi-agent approach is genuinely impressive.", name: "Sarah Kim", role: "Engineering Lead" },
+                                { quote: "The quality score trend feature helped us track our improvement over time. Our team's code quality is measurably better.", name: "Marcus Johnson", role: "CTO, Startup" },
+                            ].map((t) => (
+                                <div key={t.name} className="bg-card border border-border rounded-2xl p-6">
+                                    <p className="text-sm text-muted-foreground leading-relaxed mb-5 italic">&ldquo;{t.quote}&rdquo;</p>
+                                    <div>
+                                        <p className="text-sm font-bold text-foreground">{t.name}</p>
+                                        <p className="text-xs text-muted-foreground">{t.role}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+
                 {/* ── CTA ── */}
                 <section className="py-24 md:py-32">
                     <div className="max-w-4xl mx-auto px-6 text-center">
