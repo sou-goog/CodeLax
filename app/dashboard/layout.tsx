@@ -1,9 +1,12 @@
 import React from 'react'
 import { requireAuth } from "@/module/auth/utils/auth-utils"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { DashboardShell } from "@/components/dashboard-shell"
+import { MobileMenuButton } from "@/components/mobile-menu-button"
 import { Terminal } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { CommandPalette } from "@/components/command-palette"
+import { NotificationBell } from "@/components/notification-bell"
 
 const DashboardLayout = async(
     {children}: {
@@ -12,28 +15,34 @@ const DashboardLayout = async(
 ) => {
     await requireAuth();
   return (
-    <div className="min-h-screen bg-background text-foreground transition-colors duration-300">
+    <DashboardShell>
+      <div className="min-h-screen bg-background text-foreground transition-colors duration-300">
         {/* Top Header */}
-        <header className="bg-background/80 backdrop-blur-md border-b border-border/50 sticky top-0 z-50 flex justify-between items-center w-full px-6 py-3">
-            <div className="text-lg font-bold text-foreground flex items-center gap-2">
-                <Terminal className="w-5 h-5 text-violet-500" />
-                <span>CodeLax</span>
-            </div>
+        <header className="bg-background/80 backdrop-blur-md border-b border-border/50 sticky top-0 z-50 flex justify-between items-center w-full px-4 md:px-6 py-3">
             <div className="flex items-center gap-2">
+                <MobileMenuButton />
+                <div className="text-lg font-bold text-foreground flex items-center gap-2">
+                    <Terminal className="w-5 h-5 text-violet-500" />
+                    <span>CodeLax</span>
+                </div>
+            </div>
+            <div className="flex items-center gap-1.5 md:gap-2">
                 <kbd className="hidden sm:flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/60 border border-border px-2.5 py-1 rounded-lg font-mono cursor-pointer hover:bg-muted transition-colors">
                     <span className="text-xs">⌘</span>K
                 </kbd>
+                <NotificationBell />
                 <ThemeToggle />
             </div>
         </header>
         <CommandPalette />
         <DashboardSidebar />
-        <main className="md:ml-64 p-6 min-h-[calc(100vh-49px)] overflow-y-auto">
+        <main className="md:ml-64 p-4 md:p-6 pb-20 md:pb-6 min-h-[calc(100vh-49px)] overflow-y-auto">
             <div className="max-w-7xl mx-auto">
                 {children}
             </div>
         </main>
-    </div>
+      </div>
+    </DashboardShell>
   )
 }
 

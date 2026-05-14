@@ -438,6 +438,52 @@ export const generateReviewMultiAgent = inngest.createFunction(
       }
     });
 
+    // Create notifications for the user
+    await step.run("create-notifications", async () => {
+      const findingsCount = criticReport.verifiedFindings.length;
+      const hasCritical = criticReport.verifiedFindings.some((f) => f.severity === "critical");
+      const hasHigh = criticReport.verifiedFindings.some((f) => f.severity === "high");
+      const reviewLink = reviewRecord ? `/dashboard/reviews/${reviewRecord.id}` : "/dashboard/reviews";
+
+      // Review completed notification
+      await prisma.notification.create({
+        data: {
+          userId,
+          type: "review_completed",
+          title: `Review completed: ${title}`,
+          message: findingsCount === 0
+            ? "No issues found — your code looks great!"
+            : `Found ${findingsCount} issue${findingsCount > 1 ? "s" : ""} in ${owner}/${repo}#${prNumber}`,
+          link: reviewLink,
+        },
+      });
+
+      // Critical/high severity alert
+      if (hasCritical) {
+        const critCount = criticReport.verifiedFindings.filter((f) => f.severity === "critical").length;
+        await prisma.notification.create({
+          data: {
+            userId,
+            type: "critical_finding",
+            title: `Critical issues in ${owner}/${repo}#${prNumber}`,
+            message: `${critCount} critical finding${critCount > 1 ? "s" : ""} require immediate attention.`,
+            link: reviewLink,
+          },
+        });
+      } else if (hasHigh) {
+        const highCount = criticReport.verifiedFindings.filter((f) => f.severity === "high").length;
+        await prisma.notification.create({
+          data: {
+            userId,
+            type: "high_finding",
+            title: `High severity issues in ${owner}/${repo}#${prNumber}`,
+            message: `${highCount} high severity finding${highCount > 1 ? "s" : ""} detected.`,
+            link: reviewLink,
+          },
+        });
+      }
+    });
+
     return { success: true, findingsCount: criticReport.verifiedFindings.length, durationMs };
   }
 );
