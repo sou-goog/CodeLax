@@ -4,35 +4,36 @@ import React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getReviewById, retriggerReview } from "@/module/review/action";
 import { useQuery } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
 import {
   ArrowLeft, GitPullRequest, ExternalLink, ShieldAlert, Zap,
   BrainCircuit, Paintbrush, Clock, CheckCircle2, XCircle,
   Loader2, SkipForward, RotateCw, FileCode2, AlertTriangle,
+  ChevronDown, ChevronRight, Timer, Hash, TrendingUp,
 } from "lucide-react";
 import { ReviewProgress } from "@/components/review-progress";
 
-const agentConfig: Record<string, { icon: React.ReactNode; color: string; bg: string; label: string }> = {
-  security: { icon: <ShieldAlert className="w-4 h-4" />, color: "text-red-400", bg: "bg-red-500/20", label: "Security" },
-  performance: { icon: <Zap className="w-4 h-4" />, color: "text-yellow-400", bg: "bg-yellow-500/20", label: "Performance" },
-  logic: { icon: <BrainCircuit className="w-4 h-4" />, color: "text-blue-400", bg: "bg-blue-500/20", label: "Logic" },
-  style: { icon: <Paintbrush className="w-4 h-4" />, color: "text-purple-400", bg: "bg-purple-500/20", label: "Style" },
+const agentConfig: Record<string, { icon: React.ReactNode; color: string; bg: string; gradient: string; label: string }> = {
+  security: { icon: <ShieldAlert className="w-4 h-4" />, color: "text-red-400", bg: "bg-red-500/10", gradient: "from-red-500/20 to-transparent", label: "Security" },
+  performance: { icon: <Zap className="w-4 h-4" />, color: "text-yellow-400", bg: "bg-yellow-500/10", gradient: "from-yellow-500/20 to-transparent", label: "Performance" },
+  logic: { icon: <BrainCircuit className="w-4 h-4" />, color: "text-blue-400", bg: "bg-blue-500/10", gradient: "from-blue-500/20 to-transparent", label: "Logic" },
+  style: { icon: <Paintbrush className="w-4 h-4" />, color: "text-purple-400", bg: "bg-purple-500/10", gradient: "from-purple-500/20 to-transparent", label: "Style" },
 };
 
-const severityConfig: Record<string, { color: string; dot: string; border: string; bg: string }> = {
-  critical: { color: "text-red-400", dot: "bg-red-500", border: "border-l-red-500", bg: "bg-red-500/5" },
-  high: { color: "text-orange-400", dot: "bg-orange-500", border: "border-l-orange-500", bg: "bg-orange-500/5" },
-  medium: { color: "text-yellow-400", dot: "bg-yellow-500", border: "border-l-yellow-500", bg: "bg-yellow-500/5" },
-  low: { color: "text-blue-400", dot: "bg-blue-500", border: "border-l-blue-500", bg: "bg-blue-500/5" },
-  info: { color: "text-zinc-400", dot: "bg-zinc-500", border: "border-l-zinc-500", bg: "bg-zinc-500/5" },
+const severityConfig: Record<string, { color: string; dot: string; border: string; bg: string; ring: string }> = {
+  critical: { color: "text-red-400", dot: "bg-red-500", border: "border-l-red-500", bg: "bg-red-500/5", ring: "ring-red-500/20" },
+  high: { color: "text-orange-400", dot: "bg-orange-500", border: "border-l-orange-500", bg: "bg-orange-500/5", ring: "ring-orange-500/20" },
+  medium: { color: "text-yellow-400", dot: "bg-yellow-500", border: "border-l-yellow-500", bg: "bg-yellow-500/5", ring: "ring-yellow-500/20" },
+  low: { color: "text-blue-400", dot: "bg-blue-500", border: "border-l-blue-500", bg: "bg-blue-500/5", ring: "ring-blue-500/20" },
+  info: { color: "text-zinc-400", dot: "bg-zinc-500", border: "border-l-zinc-500", bg: "bg-zinc-500/5", ring: "ring-zinc-500/20" },
 };
 
 const statusConfig: Record<string, { icon: React.ReactNode; label: string; color: string; bg: string }> = {
-  pending: { icon: <Clock className="w-4 h-4" />, label: "Pending", color: "text-zinc-400", bg: "bg-zinc-500/10 border-zinc-500/20" },
-  in_progress: { icon: <Loader2 className="w-4 h-4 animate-spin" />, label: "In Progress", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
-  completed: { icon: <CheckCircle2 className="w-4 h-4" />, label: "Completed", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
-  failed: { icon: <XCircle className="w-4 h-4" />, label: "Failed", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" },
-  skipped: { icon: <SkipForward className="w-4 h-4" />, label: "Skipped", color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
+  pending: { icon: <Clock className="w-3.5 h-3.5" />, label: "Pending", color: "text-zinc-400", bg: "bg-zinc-500/10 border-zinc-500/20" },
+  in_progress: { icon: <Loader2 className="w-3.5 h-3.5 animate-spin" />, label: "In Progress", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
+  completed: { icon: <CheckCircle2 className="w-3.5 h-3.5" />, label: "Completed", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
+  failed: { icon: <XCircle className="w-3.5 h-3.5" />, label: "Failed", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" },
+  skipped: { icon: <SkipForward className="w-3.5 h-3.5" />, label: "Skipped", color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
 };
 
 function formatDuration(ms: number | null): string {
@@ -43,7 +44,7 @@ function formatDuration(ms: number | null): string {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-// Simple markdown renderer for review content
+// Markdown renderer
 function ReviewMarkdown({ content }: { content: string }) {
   const lines = content.split("\n");
   const elements: React.ReactNode[] = [];
@@ -58,14 +59,19 @@ function ReviewMarkdown({ content }: { content: string }) {
     if (line.startsWith("```")) {
       if (inCodeBlock) {
         elements.push(
-          <div key={key++} className="my-3 rounded-lg overflow-hidden border border-border">
+          <div key={key++} className="my-4 rounded-xl overflow-hidden border border-border/60 shadow-sm">
             {codeLang && (
-              <div className="px-3 py-1.5 bg-muted/80 text-[10px] text-muted-foreground font-mono uppercase tracking-wider border-b border-border">
-                {codeLang}
+              <div className="px-4 py-2 bg-muted/60 text-[11px] text-muted-foreground font-mono uppercase tracking-wider border-b border-border/60 flex items-center gap-2">
+                <div className="flex gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
+                </div>
+                <span className="ml-2">{codeLang}</span>
               </div>
             )}
-            <pre className="p-4 bg-muted/40 overflow-x-auto text-sm font-mono leading-relaxed">
-              <code>{codeLines.join("\n")}</code>
+            <pre className="p-4 bg-[#0d1117] overflow-x-auto text-[13px] font-mono leading-6">
+              <code className="text-[#e6edf3]">{codeLines.join("\n")}</code>
             </pre>
           </div>
         );
@@ -85,41 +91,46 @@ function ReviewMarkdown({ content }: { content: string }) {
     }
 
     if (line.startsWith("#### ")) {
-      elements.push(<h4 key={key++} className="text-base font-bold text-foreground mt-5 mb-2">{line.slice(5)}</h4>);
+      elements.push(<h4 key={key++} className="text-[15px] font-semibold text-foreground mt-6 mb-2">{renderInline(line.slice(5))}</h4>);
     } else if (line.startsWith("### ")) {
-      elements.push(<h3 key={key++} className="text-lg font-bold text-foreground mt-6 mb-3 pb-2 border-b border-border">{line.slice(4)}</h3>);
+      elements.push(
+        <h3 key={key++} className="text-lg font-bold text-foreground mt-8 mb-3 flex items-center gap-2">
+          <div className="w-1 h-5 rounded-full bg-violet-500" />
+          {renderInline(line.slice(4))}
+        </h3>
+      );
     } else if (line.startsWith("## ")) {
-      elements.push(<h2 key={key++} className="text-xl font-bold text-foreground mt-6 mb-3">{line.slice(3)}</h2>);
+      elements.push(<h2 key={key++} className="text-xl font-bold text-foreground mt-8 mb-4 pb-3 border-b border-border/60">{renderInline(line.slice(3))}</h2>);
     } else if (line.startsWith("> ")) {
       elements.push(
-        <blockquote key={key++} className="border-l-4 border-violet-500/40 pl-4 py-2 my-3 bg-violet-500/5 rounded-r-lg text-sm text-muted-foreground">
+        <blockquote key={key++} className="border-l-4 border-violet-500/50 pl-4 py-2.5 my-4 bg-gradient-to-r from-violet-500/5 to-transparent rounded-r-lg text-sm text-muted-foreground italic">
           {renderInline(line.slice(2))}
         </blockquote>
       );
     } else if (line.startsWith("---")) {
-      elements.push(<hr key={key++} className="my-4 border-border" />);
+      elements.push(<hr key={key++} className="my-6 border-border/40" />);
     } else if (line.match(/^\d+\.\s/)) {
       elements.push(
-        <div key={key++} className="flex gap-3 my-1.5 text-sm text-muted-foreground">
-          <span className="text-violet-400 font-bold shrink-0">{line.match(/^(\d+\.)/)?.[1]}</span>
-          <span>{renderInline(line.replace(/^\d+\.\s/, ""))}</span>
+        <div key={key++} className="flex gap-3 my-2 text-sm text-muted-foreground pl-1">
+          <span className="text-violet-400 font-mono font-bold shrink-0 min-w-[20px]">{line.match(/^(\d+\.)/)?.[1]}</span>
+          <span className="leading-relaxed">{renderInline(line.replace(/^\d+\.\s/, ""))}</span>
         </div>
       );
-    } else if (line.startsWith("- ")) {
+    } else if (line.startsWith("- ") || line.startsWith("* ")) {
       elements.push(
-        <div key={key++} className="flex gap-2 my-1 text-sm text-muted-foreground ml-2">
-          <span className="text-violet-400 mt-1.5 shrink-0">•</span>
-          <span>{renderInline(line.slice(2))}</span>
+        <div key={key++} className="flex gap-2.5 my-1.5 text-sm text-muted-foreground pl-3">
+          <span className="text-violet-400/80 mt-2 shrink-0 w-1.5 h-1.5 rounded-full bg-violet-400/60" />
+          <span className="leading-relaxed">{renderInline(line.slice(2))}</span>
         </div>
       );
     } else if (line.trim() === "") {
-      elements.push(<div key={key++} className="h-2" />);
+      elements.push(<div key={key++} className="h-3" />);
     } else {
-      elements.push(<p key={key++} className="text-sm text-muted-foreground leading-relaxed my-1">{renderInline(line)}</p>);
+      elements.push(<p key={key++} className="text-sm text-muted-foreground leading-7 my-1">{renderInline(line)}</p>);
     }
   }
 
-  return <div className="space-y-0.5">{elements}</div>;
+  return <div>{elements}</div>;
 }
 
 function renderInline(text: string): React.ReactNode {
@@ -128,7 +139,6 @@ function renderInline(text: string): React.ReactNode {
   let idx = 0;
 
   while (remaining.length > 0) {
-    // Bold
     const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
     if (boldMatch && boldMatch.index !== undefined) {
       if (boldMatch.index > 0) parts.push(remaining.slice(0, boldMatch.index));
@@ -136,11 +146,10 @@ function renderInline(text: string): React.ReactNode {
       remaining = remaining.slice(boldMatch.index + boldMatch[0].length);
       continue;
     }
-    // Inline code
     const codeMatch = remaining.match(/`([^`]+)`/);
     if (codeMatch && codeMatch.index !== undefined) {
       if (codeMatch.index > 0) parts.push(remaining.slice(0, codeMatch.index));
-      parts.push(<code key={idx++} className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono text-violet-300">{codeMatch[1]}</code>);
+      parts.push(<code key={idx++} className="px-1.5 py-0.5 bg-violet-500/10 border border-violet-500/20 rounded text-[12px] font-mono text-violet-300">{codeMatch[1]}</code>);
       remaining = remaining.slice(codeMatch.index + codeMatch[0].length);
       continue;
     }
@@ -149,6 +158,56 @@ function renderInline(text: string): React.ReactNode {
   }
 
   return <>{parts}</>;
+}
+
+// Finding card with expand/collapse
+function FindingCard({ finding }: { finding: { id: string; title: string; severity: string; confidence: number; file: string; description: string; suggestion: string } }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const sev = severityConfig[finding.severity] || severityConfig.info;
+
+  return (
+    <div className={`border-l-4 ${sev.border} transition-all duration-200 ${expanded ? sev.bg : "hover:bg-muted/30"}`}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left px-5 py-4 flex items-start gap-3"
+      >
+        <div className="pt-0.5 shrink-0 text-muted-foreground">
+          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="text-sm font-semibold text-foreground truncate">{finding.title}</h4>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${sev.color} ${sev.ring} ring-1 inline-flex items-center gap-1`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${sev.dot}`} />
+              {finding.severity.toUpperCase()}
+            </span>
+            <span className="text-[10px] text-muted-foreground/70 ml-auto shrink-0">
+              {(finding.confidence * 100).toFixed(0)}% confidence
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <FileCode2 className="w-3 h-3 text-muted-foreground/60" />
+            <span className="text-[11px] font-mono text-muted-foreground/80 truncate">{finding.file}</span>
+          </div>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-5 pb-5 pl-12 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+          <p className="text-[13px] text-muted-foreground leading-relaxed">{finding.description}</p>
+          {finding.suggestion && (
+            <div className="rounded-xl overflow-hidden border border-emerald-500/20">
+              <div className="px-3 py-1.5 bg-emerald-500/5 border-b border-emerald-500/20 flex items-center gap-2">
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                <span className="text-[10px] text-emerald-400 uppercase tracking-wider font-bold">Suggested Fix</span>
+              </div>
+              <pre className="p-4 bg-[#0d1117] text-[13px] text-emerald-300/90 font-mono whitespace-pre-wrap leading-6 overflow-x-auto">{finding.suggestion}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ReviewDetailPage() {
@@ -180,18 +239,29 @@ export default function ReviewDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative w-12 h-12">
+            <div className="absolute inset-0 rounded-full border-2 border-violet-500/20" />
+            <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+          </div>
+          <p className="text-sm text-muted-foreground">Loading review...</p>
+        </div>
       </div>
     );
   }
 
   if (!review) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <AlertTriangle className="w-10 h-10 text-muted-foreground" />
-        <p className="text-muted-foreground">Review not found</p>
-        <button onClick={() => router.push("/dashboard/reviews")} className="text-violet-400 text-sm hover:underline">
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center">
+          <AlertTriangle className="w-8 h-8 text-muted-foreground" />
+        </div>
+        <div className="text-center">
+          <p className="text-foreground font-medium">Review not found</p>
+          <p className="text-sm text-muted-foreground mt-1">This review may have been deleted.</p>
+        </div>
+        <button onClick={() => router.push("/dashboard/reviews")} className="text-violet-400 text-sm hover:underline mt-2">
           Back to reviews
         </button>
       </div>
@@ -212,76 +282,105 @@ export default function ReviewDetailPage() {
     findingsByAgent[f.agentName].push(f);
   }
 
+  // Unique files affected
+  const uniqueFiles = [...new Set(findings.map((f) => f.file))];
+
   return (
     <div className="space-y-6 pb-12">
-      {/* Back button */}
+      {/* Back nav */}
       <button
         onClick={() => router.push("/dashboard/reviews")}
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
-        <ArrowLeft className="w-4 h-4" /> Back to reviews
+        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+        <span>All Reviews</span>
       </button>
 
-      {/* Header */}
-      <div className="bg-card border border-border rounded-xl p-6">
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-              <span className="font-medium text-foreground">{review.repository.fullName}</span>
-              <span>·</span>
-              {formatDistanceToNow(new Date(review.createdAt), { addSuffix: true })}
-              <span>·</span>
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${st.color} ${st.bg}`}>
-                {st.icon} {st.label}
-              </span>
-              {review.durationMs && (
-                <>
-                  <span>·</span>
-                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDuration(review.durationMs)}</span>
-                </>
-              )}
-            </div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-3">
-              <GitPullRequest className="w-6 h-6 text-violet-400 shrink-0" />
-              {review.prTitle}
-            </h1>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleRetrigger}
-              disabled={retriggering}
-              className="bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs px-4 py-2 rounded-lg font-medium hover:bg-violet-500/20 transition-colors flex items-center gap-2 disabled:opacity-50"
-            >
-              <RotateCw className={`w-3.5 h-3.5 ${retriggering ? "animate-spin" : ""}`} />
-              {retriggering ? "Re-running..." : "Re-run Review"}
-            </button>
-            <a
-              href={review.prUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="bg-muted border border-border text-foreground text-xs px-4 py-2 rounded-lg font-medium hover:border-violet-500/30 transition-colors flex items-center gap-2"
-            >
-              View PR <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
-        </div>
+      {/* Hero header */}
+      <div className="relative overflow-hidden bg-card border border-border rounded-2xl">
+        {/* Gradient accent */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-blue-500 to-emerald-500" />
 
-        {/* Stats bar */}
-        <div className="flex gap-4 mt-5 flex-wrap">
-          {[
-            { label: "Critical", count: criticalCount, color: "text-red-400", bg: "bg-red-500/10" },
-            { label: "High", count: highCount, color: "text-orange-400", bg: "bg-orange-500/10" },
-            { label: "Medium", count: mediumCount, color: "text-yellow-400", bg: "bg-yellow-500/10" },
-            { label: "Low", count: lowCount, color: "text-blue-400", bg: "bg-blue-500/10" },
-          ].map((s) => (
-            <div key={s.label} className={`${s.bg} rounded-lg px-4 py-2 text-center min-w-[80px]`}>
-              <div className={`text-xl font-bold ${s.color}`}>{s.count}</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{s.label}</div>
+        <div className="p-6 md:p-8">
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
+            <div className="space-y-4 min-w-0">
+              {/* Meta row */}
+              <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                <span className="font-medium text-foreground bg-muted/50 px-2.5 py-1 rounded-md">{review.repository.fullName}</span>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border font-bold ${st.color} ${st.bg}`}>
+                  {st.icon} {st.label}
+                </span>
+                {review.durationMs && (
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <Timer className="w-3.5 h-3.5" /> {formatDuration(review.durationMs)}
+                  </span>
+                )}
+              </div>
+
+              {/* Title */}
+              <h1 className="text-2xl md:text-3xl font-bold text-foreground flex items-start gap-3 leading-tight">
+                <GitPullRequest className="w-7 h-7 text-violet-400 shrink-0 mt-1" />
+                <span className="break-words">{review.prTitle}</span>
+              </h1>
+
+              {/* Timestamp */}
+              <p className="text-xs text-muted-foreground">
+                Reviewed {formatDistanceToNow(new Date(review.createdAt), { addSuffix: true })}
+                {review.createdAt && <span className="text-muted-foreground/50"> &mdash; {format(new Date(review.createdAt), "MMM d, yyyy 'at' h:mm a")}</span>}
+              </p>
             </div>
-          ))}
-          <div className="bg-muted/50 rounded-lg px-4 py-2 text-center min-w-[80px]">
-            <div className="text-xl font-bold text-foreground">{findings.length}</div>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Total</div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleRetrigger}
+                disabled={retriggering}
+                className="bg-violet-600 hover:bg-violet-500 text-white text-xs px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm shadow-violet-500/20"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${retriggering ? "animate-spin" : ""}`} />
+                {retriggering ? "Running..." : "Re-run"}
+              </button>
+              <a
+                href={review.prUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-card border border-border text-foreground text-xs px-4 py-2.5 rounded-lg font-medium hover:bg-muted transition-colors flex items-center gap-2"
+              >
+                GitHub <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Stats row */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6 pt-6 border-t border-border/60">
+            {[
+              { label: "Critical", count: criticalCount, color: "text-red-400", dotColor: "bg-red-500" },
+              { label: "High", count: highCount, color: "text-orange-400", dotColor: "bg-orange-500" },
+              { label: "Medium", count: mediumCount, color: "text-yellow-400", dotColor: "bg-yellow-500" },
+              { label: "Low", count: lowCount, color: "text-blue-400", dotColor: "bg-blue-500" },
+            ].map((s) => (
+              <div key={s.label} className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2.5">
+                <div className={`w-2 h-2 rounded-full ${s.dotColor}`} />
+                <div>
+                  <div className={`text-lg font-bold ${s.color} leading-none`}>{s.count}</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">{s.label}</div>
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2.5">
+              <Hash className="w-3.5 h-3.5 text-muted-foreground" />
+              <div>
+                <div className="text-lg font-bold text-foreground leading-none">{findings.length}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">Total</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2.5">
+              <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
+              <div>
+                <div className="text-lg font-bold text-foreground leading-none">{uniqueFiles.length}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">Files</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -292,87 +391,78 @@ export default function ReviewDetailPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-muted/50 p-1 rounded-lg w-fit">
-        {(["review", "findings"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors capitalize ${
-              activeTab === tab ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab === "review" ? "Full Review" : `Findings (${findings.length})`}
-          </button>
-        ))}
+      <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm py-2 -mx-1 px-1">
+        <div className="flex gap-1 bg-muted/60 p-1 rounded-xl w-fit border border-border/40">
+          {(["review", "findings"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === tab
+                  ? "bg-card text-foreground shadow-sm border border-border/60"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab === "review" ? "Full Review" : `Findings (${findings.length})`}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Tab content */}
       {activeTab === "review" ? (
-        <div className="bg-card border border-border rounded-xl p-6 md:p-8">
+        <div className="bg-card border border-border rounded-2xl p-6 md:p-10 shadow-sm">
           {review.review ? (
-            <ReviewMarkdown content={review.review} />
+            <article className="max-w-none prose-sm">
+              <ReviewMarkdown content={review.review} />
+            </article>
           ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <Loader2 className="w-8 h-8 animate-spin mb-4" />
-              <p>Review is being generated...</p>
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <div className="relative w-14 h-14 mb-5">
+                <div className="absolute inset-0 rounded-full border-2 border-violet-500/20" />
+                <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+              </div>
+              <p className="font-medium text-foreground">Review in progress</p>
+              <p className="text-sm mt-1">Our AI agents are analyzing your code changes...</p>
             </div>
           )}
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* By agent breakdown */}
+        <div className="space-y-4">
+          {/* Agent breakdown */}
           {Object.entries(findingsByAgent).map(([agent, agentFindings]) => {
             const ac = agentConfig[agent] || agentConfig.logic;
             return (
-              <div key={agent} className="bg-card border border-border rounded-xl overflow-hidden">
-                <div className="px-5 py-3 border-b border-border flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-lg ${ac.bg} flex items-center justify-center ${ac.color}`}>
+              <div key={agent} className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+                {/* Agent header with gradient */}
+                <div className={`px-5 py-4 flex items-center gap-3 bg-gradient-to-r ${ac.gradient}`}>
+                  <div className={`w-9 h-9 rounded-xl ${ac.bg} flex items-center justify-center ${ac.color} ring-1 ${ac.color === "text-red-400" ? "ring-red-500/20" : ac.color === "text-yellow-400" ? "ring-yellow-500/20" : ac.color === "text-blue-400" ? "ring-blue-500/20" : "ring-purple-500/20"}`}>
                     {ac.icon}
                   </div>
-                  <h3 className="text-sm font-bold text-foreground">{ac.label} Agent</h3>
-                  <span className="text-xs text-muted-foreground ml-auto">{agentFindings.length} finding{agentFindings.length !== 1 ? "s" : ""}</span>
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">{ac.label} Agent</h3>
+                    <p className="text-[11px] text-muted-foreground">{agentFindings.length} finding{agentFindings.length !== 1 ? "s" : ""} detected</p>
+                  </div>
                 </div>
-                {agentFindings.map((finding) => {
-                  const sev = severityConfig[finding.severity] || severityConfig.info;
-                  return (
-                    <div key={finding.id} className={`border-b border-border/50 border-l-4 ${sev.border} p-5 hover:${sev.bg} transition-colors`}>
-                      <div className="space-y-3">
-                        <div className="flex items-start justify-between gap-4">
-                          <h4 className="text-sm font-bold text-foreground">{finding.title}</h4>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`text-[10px] font-bold ${sev.color} flex items-center gap-1`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${sev.dot}`} />
-                              {finding.severity.toUpperCase()}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground">
-                              {(finding.confidence * 100).toFixed(0)}%
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <FileCode2 className="w-3.5 h-3.5 text-muted-foreground" />
-                          <span className="text-xs font-mono bg-muted px-2 py-0.5 rounded text-muted-foreground">{finding.file}</span>
-                        </div>
-                        <p className="text-[13px] text-muted-foreground leading-relaxed">{finding.description}</p>
-                        {finding.suggestion && (
-                          <div className="bg-violet-500/5 border border-violet-500/20 rounded-lg p-3">
-                            <p className="text-[10px] text-violet-400 uppercase tracking-wider font-bold mb-2">Suggested Fix</p>
-                            <pre className="text-[13px] text-violet-300 font-mono whitespace-pre-wrap">{finding.suggestion}</pre>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {/* Findings list */}
+                <div className="divide-y divide-border/50">
+                  {agentFindings.map((finding) => (
+                    <FindingCard key={finding.id} finding={finding} />
+                  ))}
+                </div>
               </div>
             );
           })}
 
           {findings.length === 0 && (
-            <div className="bg-card border border-border rounded-xl p-12 text-center">
-              <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-foreground">All Clear</h3>
-              <p className="text-muted-foreground text-sm">No issues found in this review.</p>
+            <div className="bg-card border border-border rounded-2xl p-16 text-center shadow-sm">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-5">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">All Clear</h3>
+              <p className="text-muted-foreground text-sm mt-2 max-w-sm mx-auto">
+                No issues were found in this pull request. Your code looks great!
+              </p>
             </div>
           )}
         </div>
