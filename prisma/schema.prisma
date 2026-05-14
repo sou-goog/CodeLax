@@ -28,22 +28,26 @@ model account {
 }
 
 model repository {
-  id          String   @id
-  githubId    BigInt   @unique
+  id          String            @id
+  githubId    BigInt            @unique
   name        String
   owner       String
   fullName    String
   url         String
   userId      String
-  createdAt   DateTime @default(now())
+  teamId      String?
+  createdAt   DateTime          @default(now())
   updatedAt   DateTime
   description String?
   language    String?
-  stars       Int      @default(0)
-  user        user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stars       Int               @default(0)
+  user        user              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team        team?             @relation(fields: [teamId], references: [id])
   review      review[]
+  rules       review_rule[]
 
   @@index([userId])
+  @@index([teamId])
 }
 
 model session {
@@ -72,6 +76,77 @@ model user {
   repository    repository[]
   session       session[]
   notification  notification[]
+  teamMembers   team_member[]
+  activities    activity_event[]
+}
+
+model team {
+  id          String          @id @default(cuid())
+  name        String
+  slug        String          @unique
+  image       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  members     team_member[]
+  invites     team_invite[]
+  repositories repository[]
+}
+
+model team_member {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  role      String   @default("viewer")
+  createdAt DateTime @default(now())
+  team      team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+
+model team_invite {
+  id        String   @id @default(cuid())
+  teamId    String
+  email     String
+  role      String   @default("viewer")
+  token     String   @unique @default(cuid())
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  team      team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([email])
+}
+
+model activity_event {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   String?  @default("{}")
+  createdAt  DateTime @default(now())
+  user       user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([targetType, targetId])
+}
+
+model review_rule {
+  id           String     @id @default(cuid())
+  repositoryId String
+  name         String
+  description  String     @default("")
+  pattern      String
+  severity     String     @default("medium")
+  enabled      Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  repository   repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@index([repositoryId])
 }
 
 model notification {

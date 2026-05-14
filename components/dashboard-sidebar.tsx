@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, FolderOpen, BrainCircuit, BarChart3, Settings, Settings2, Terminal, LogOut, Moon, Sun, Webhook, X } from "lucide-react";
+import { LayoutDashboard, FolderOpen, BrainCircuit, BarChart3, Settings, Settings2, Terminal, LogOut, Moon, Sun, Webhook, X, Users, Shield, Activity } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useState, useEffect, createContext, useContext } from "react";
 import { usePathname } from "next/navigation";
@@ -14,7 +14,10 @@ const navItems = [
     { title: "AI Reviews", url: "/dashboard/reviews", icon: BrainCircuit },
     { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3 },
     { title: "Config Editor", url: "/dashboard/config", icon: Settings2 },
+    { title: "Rules", url: "/dashboard/rules", icon: Shield },
+    { title: "Teams", url: "/dashboard/teams", icon: Users },
     { title: "Webhooks", url: "/dashboard/webhooks", icon: Webhook },
+    { title: "Activity", url: "/dashboard/activity", icon: Activity },
     { title: "Settings", url: "/dashboard/settings", icon: Settings },
 ];
 

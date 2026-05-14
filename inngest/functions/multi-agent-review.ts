@@ -484,6 +484,25 @@ export const generateReviewMultiAgent = inngest.createFunction(
       }
     });
 
+    // Log activity event
+    await step.run("log-activity", async () => {
+      await prisma.activity_event.create({
+        data: {
+          userId,
+          type: "review",
+          action: `Review completed for ${owner}/${repo}#${prNumber}`,
+          targetType: "review",
+          targetId: reviewRecord?.id,
+          metadata: JSON.stringify({
+            name: title,
+            description: `${criticReport.verifiedFindings.length} findings in ${Math.round(durationMs / 1000)}s`,
+            prNumber,
+            repo: `${owner}/${repo}`,
+          }),
+        },
+      });
+    });
+
     return { success: true, findingsCount: criticReport.verifiedFindings.length, durationMs };
   }
 );
