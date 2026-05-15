@@ -58,13 +58,17 @@ export async function createTeam(name: string) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  let slug = slugify(name);
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.length < 2) throw new Error("Team name must be at least 2 characters");
+  if (trimmed.length > 50) throw new Error("Team name must be under 50 characters");
+
+  let slug = slugify(trimmed);
   const existing = await prisma.team.findUnique({ where: { slug } });
   if (existing) slug = `${slug}-${Date.now().toString(36)}`;
 
   const team = await prisma.team.create({
     data: {
-      name,
+      name: trimmed,
       slug,
       members: {
         create: { userId: session.user.id, role: "admin" },
@@ -79,6 +83,11 @@ export async function inviteToTeam(teamId: string, email: string, role: string =
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
+  const trimmedEmail = email.trim().toLowerCase();
+  if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) throw new Error("Invalid email address");
+  if (!['admin', 'reviewer', 'viewer'].includes(role)) throw new Error("Invalid role");
+  if (trimmedEmail === session.user.email.toLowerCase()) throw new Error("You can't invite yourself");
+
   // Verify caller is admin
   const membership = await prisma.team_member.findUnique({
     where: { teamId_userId: { teamId, userId: session.user.id } },
@@ -86,7 +95,7 @@ export async function inviteToTeam(teamId: string, email: string, role: string =
   if (!membership || membership.role !== "admin") throw new Error("Only admins can invite");
 
   // Check if already a member
-  const targetUser = await prisma.user.findUnique({ where: { email } });
+  const targetUser = await prisma.user.findFirst({ where: { email: { equals: trimmedEmail, mode: "insensitive" } } });
   if (targetUser) {
     const existing = await prisma.team_member.findUnique({
       where: { teamId_userId: { teamId, userId: targetUser.id } },
@@ -96,14 +105,14 @@ export async function inviteToTeam(teamId: string, email: string, role: string =
 
   // Check existing invite
   const existingInvite = await prisma.team_invite.findFirst({
-    where: { teamId, email, expiresAt: { gt: new Date() } },
+    where: { teamId, email: trimmedEmail, expiresAt: { gt: new Date() } },
   });
   if (existingInvite) throw new Error("Invite already pending");
 
   const invite = await prisma.team_invite.create({
     data: {
       teamId,
-      email,
+      email: trimmedEmail,
       role,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
     },
