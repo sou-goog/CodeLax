@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { getActivityFeed } from "@/module/activity/actions";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getActivityFeed, backfillActivity } from "@/module/activity/actions";
 import { formatDistanceToNow } from "date-fns";
 import {
   Activity, BrainCircuit, GitPullRequest, Shield, Settings2,
@@ -18,6 +18,7 @@ const typeConfig: Record<string, { icon: React.ReactNode; color: string; bg: str
   config: { icon: <Settings2 className="w-4 h-4" />, color: "text-orange-400", bg: "bg-orange-500/10" },
   team: { icon: <Users className="w-4 h-4" />, color: "text-pink-400", bg: "bg-pink-500/10" },
   rule: { icon: <Shield className="w-4 h-4" />, color: "text-cyan-400", bg: "bg-cyan-500/10" },
+  repo: { icon: <FolderOpen className="w-4 h-4" />, color: "text-emerald-400", bg: "bg-emerald-500/10" },
 };
 
 const filterOptions = [
@@ -31,8 +32,10 @@ const filterOptions = [
 ];
 
 export default function ActivityPage() {
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["activity", filter, cursor],
@@ -82,6 +85,20 @@ export default function ActivityPage() {
           <Activity className="w-12 h-12 text-muted-foreground mb-4" />
           <h3 className="text-lg font-medium text-foreground">No activity yet</h3>
           <p className="text-muted-foreground text-sm mt-1">Events will appear here as you use CodeLax.</p>
+          <button
+            onClick={async () => {
+              setBackfilling(true);
+              try {
+                await backfillActivity();
+                queryClient.invalidateQueries({ queryKey: ["activity"] });
+              } catch {} finally { setBackfilling(false); }
+            }}
+            disabled={backfilling}
+            className="mt-4 bg-violet-600 hover:bg-violet-500 text-white text-sm px-5 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            {backfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            Backfill from existing reviews
+          </button>
         </div>
       ) : (
         <div className="relative">
