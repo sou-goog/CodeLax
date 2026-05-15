@@ -1,6 +1,7 @@
 /**
  * Utilities for parsing and filtering PR diffs before sending to AI agents.
- * Reduces noise, filters irrelevant files, and splits by file for targeted analysis.
+ * Reduces noise, filters irrelevant files, splits by file for targeted analysis,
+ * and annotates diffs with real file line numbers to prevent agent hallucination.
  */
 
 export interface ParsedFile {
@@ -213,4 +214,68 @@ export function calculateComplexityScore(rawDiff: string): {
     level,
     breakdown: { files: fileCount, additions: totalAdditions, deletions: totalDeletions, hotspotFiles },
   };
+}
+
+/**
+ * Annotate a diff with real file line numbers so agents can reference accurate lines.
+ *
+ * Each added/context line is prefixed with its actual line number in the new file,
+ * e.g. "L42+ const foo = bar" instead of just "+const foo = bar".
+ * Deleted lines keep a "L42-" prefix showing where they were in the old file.
+ * This eliminates the agent confusion caused by raw +/- markers.
+ */
+export function annotateDiffWithLineNumbers(rawDiff: string): string {
+  const lines = rawDiff.split("\n");
+  const annotated: string[] = [];
+
+  let newLine = 0; // current line number in the new file
+  let oldLine = 0; // current line number in the old file
+
+  for (const line of lines) {
+    // Hunk header: @@ -oldStart,oldCount +newStart,newCount @@
+    const hunkMatch = line.match(/^@@ -([0-9]+)(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@/);
+    if (hunkMatch) {
+      oldLine = parseInt(hunkMatch[1], 10);
+      newLine = parseInt(hunkMatch[2], 10);
+      annotated.push(line); // keep hunk header as-is
+      continue;
+    }
+
+    // diff --git / --- / +++ headers
+    if (line.startsWith("diff --git") || line.startsWith("---") || line.startsWith("++") && line.startsWith("+++")) {
+      annotated.push(line);
+      continue;
+    }
+
+    if (line.startsWith("+") && !line.startsWith("++")) {
+      annotated.push(`L${newLine}+ ${line.slice(1)}`);
+      newLine++;
+    } else if (line.startsWith("-") && !line.startsWith("--")) {
+      annotated.push(`L${oldLine}- ${line.slice(1)}`);
+      oldLine++;
+    } else {
+      // Context line — present in both files
+      annotated.push(`L${newLine}  ${line.slice(1) || ""}`);
+      newLine++;
+      oldLine++;
+    }
+  }
+
+  return annotated.join("\n");
+}
+
+/**
+ * Scale RAG topK based on diff size to avoid wasting context window on irrelevant chunks.
+ *
+ * Small diffs are already focused — fewer RAG chunks keeps the context tight.
+ * Large diffs need more context to understand cross-file interactions.
+ *
+ * @param diffChars - Total character length of the processed diff
+ * @param min       - Minimum chunks to retrieve (default 3)
+ * @param max       - Maximum chunks to retrieve (default 10)
+ */
+export function scaledTopK(diffChars: number, min = 3, max = 10): number {
+  // Linear interpolation: 0 chars → min, 20000+ chars → max
+  const ratio = Math.min(diffChars / 20000, 1);
+  return Math.round(min + ratio * (max - min));
 }

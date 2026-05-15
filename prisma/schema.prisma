@@ -176,26 +176,29 @@ model verification {
 }
 
 model review {
-  id           String     @id @default(cuid())
-  repositoryId String
-  prNumber     Int
-  prTitle      String
-  prUrl        String
-  review       String     @default("")
-  status       String     @default("pending")
-  currentStep  String?
-  diffHash     String?
-  startedAt    DateTime?
-  completedAt  DateTime?
-  durationMs   Int?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  repository   repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  findings     review_finding[]
+  id                 String     @id @default(cuid())
+  repositoryId       String
+  prNumber           Int
+  prTitle            String
+  prUrl              String
+  review             String     @default("")
+  status             String     @default("pending")
+  currentStep        String?
+  diffHash           String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  durationMs         Int?
+  /** JSON-serialized RejectionPattern[] — critic feedback for next specialist run */
+  rejectionPatterns  String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  repository         repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  findings           review_finding[]
 
   @@index([repositoryId])
   @@index([diffHash])
 }
+
 
 model review_finding {
   id          String   @id @default(cuid())

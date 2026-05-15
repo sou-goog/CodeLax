@@ -2,7 +2,7 @@ import { inngest } from "../client";
 import { Octokit } from "octokit";
 import prisma from "@/lib/db";
 import { retrieveContext } from "@/module/ai/lib/rag";
-import { prepareDiffForAgents, getChangedFilenames, calculateComplexityScore, hashDiff } from "@/module/ai/lib/diff-parser";
+import { prepareDiffForAgents, getChangedFilenames, calculateComplexityScore, hashDiff, annotateDiffWithLineNumbers, scaledTopK } from "@/module/ai/lib/diff-parser";
 import { runPlanner } from "@/module/ai/agents/planner";
 import { runSecurityAgent } from "@/module/ai/agents/security";
 import { runPerformanceAgent } from "@/module/ai/agents/performance";
@@ -10,7 +10,7 @@ import { runLogicAgent } from "@/module/ai/agents/logic";
 import { runStyleAgent } from "@/module/ai/agents/style";
 import { runCritic } from "@/module/ai/agents/critic";
 import { runSynthesizer } from "@/module/ai/agents/synthesizer";
-import type { SpecialistReport } from "@/module/ai/agents/types";
+import type { SpecialistReport, RejectionPattern } from "@/module/ai/agents/types";
 import { fetchRepoConfig, type CodeLaxConfig } from "@/module/ai/lib/config";
 import { sendSlackNotification } from "@/module/ai/lib/notifications";
 
@@ -184,7 +184,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
 
     // Step 2: Prepare — parse diff, retrieve RAG context, and plan agents (combined for speed)
     await updateStep(reviewRecord?.id, "planning");
-    const { processedDiff, filesSummary, context, plan, complexity } = await step.run("prepare", async () => {
+    const { processedDiff, rawProcessedDiff, filesSummary, context, plan, complexity } = await step.run("prepare", async () => {
       const result = prepareDiffForAgents(diff, 25000, config.ignore);
       console.log(`[review] ${result.filesSummary}`);
 
@@ -193,12 +193,20 @@ export const generateReviewMultiAgent = inngest.createFunction(
 
       const changedFiles = getChangedFilenames(diff);
       const query = `${title}\n${description}\nChanged files: ${changedFiles.join(", ")}`;
-      const ctx = await retrieveContext(query, `${owner}/${repo}`, 8);
+
+      // Scale topK by diff size — small diffs need fewer context chunks
+      const topK = scaledTopK(result.diff.length);
+      console.log(`[review] RAG topK=${topK} (diff=${result.diff.length} chars)`);
+      const ctx = await retrieveContext(query, `${owner}/${repo}`, topK);
+
+      // Annotate diff with real line numbers to prevent agent hallucination
+      const annotatedDiff = annotateDiffWithLineNumbers(result.diff);
 
       const p = await runPlanner(title, description, result.diff);
 
       return {
-        processedDiff: result.diff,
+        processedDiff: annotatedDiff,
+        rawProcessedDiff: result.diff,
         filesSummary: result.filesSummary,
         context: ctx,
         plan: p,
@@ -213,16 +221,40 @@ export const generateReviewMultiAgent = inngest.createFunction(
     const agentsToRun = plannerAgents.filter((a) => configAgents.includes(a as any));
 
     await updateStep(reviewRecord?.id, `agents:${agentsToRun.join(",")}`);
+
+    // Load rejection patterns from the most recent completed review for this repo
+    // so specialist agents can avoid repeat false positives (feedback loop)
+    const previousRejectionPatterns = await step.run("load-rejection-patterns", async () => {
+      const lastReview = await prisma.review.findFirst({
+        where: {
+          repository: { owner, name: repo },
+          status: "completed",
+          rejectionPatterns: { not: null },
+        },
+        orderBy: { completedAt: "desc" },
+      });
+      if (!lastReview?.rejectionPatterns) return {} as Record<string, RejectionPattern[]>;
+      try {
+        const patterns = JSON.parse(lastReview.rejectionPatterns as string) as RejectionPattern[];
+        // Group by agentName for easy lookup
+        return patterns.reduce<Record<string, RejectionPattern[]>>((acc, p) => {
+          (acc[p.agentName] ??= []).push(p);
+          return acc;
+        }, {});
+      } catch {
+        return {} as Record<string, RejectionPattern[]>;
+      }
+    });
     const reports = await step.run("run-specialist-agents", async () => {
       const languages = plan.languages?.length ? plan.languages : [];
       const langContext = languages.length ? [`This PR is primarily written in: ${languages.join(", ")}. Tailor your analysis to ${languages[0]}-specific patterns and best practices.`] : [];
       const instructions = [...langContext, ...(config.instructions || [])];
       const hints = plan.agentFocusHints || {};
       const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
-        security: () => runSecurityAgent(processedDiff, context, title, instructions, hints.security),
-        performance: () => runPerformanceAgent(processedDiff, context, title, instructions, hints.performance),
-        logic: () => runLogicAgent(processedDiff, context, title, instructions, hints.logic),
-        style: () => runStyleAgent(processedDiff, context, title, instructions, hints.style),
+        security: () => runSecurityAgent(processedDiff, context, title, instructions, hints.security, previousRejectionPatterns["security"]),
+        performance: () => runPerformanceAgent(processedDiff, context, title, instructions, hints.performance, previousRejectionPatterns["performance"]),
+        logic: () => runLogicAgent(processedDiff, context, title, instructions, hints.logic, previousRejectionPatterns["logic"]),
+        style: () => runStyleAgent(processedDiff, context, title, instructions, hints.style, previousRejectionPatterns["style"]),
       };
 
       const activeAgents = agentsToRun.filter((name) => agentRunners[name]);
@@ -249,8 +281,18 @@ export const generateReviewMultiAgent = inngest.createFunction(
     // Step 6: Critic Agent — deduplicates and filters findings
     await updateStep(reviewRecord?.id, "critic");
     const criticReport = await step.run("critic", () =>
-      runCritic(reports, processedDiff, title)
+      runCritic(reports, rawProcessedDiff ?? processedDiff, title)
     );
+
+    // Persist rejection patterns for next run's feedback loop
+    if (reviewRecord && criticReport.rejectionPatterns?.length) {
+      await step.run("persist-rejection-patterns", async () => {
+        await prisma.review.update({
+          where: { id: reviewRecord.id },
+          data: { rejectionPatterns: JSON.stringify(criticReport.rejectionPatterns) },
+        }).catch((e: unknown) => console.warn("[review] Could not persist rejection patterns:", e));
+      });
+    }
 
     // Send Slack notification for critical/high findings (non-blocking)
     sendSlackNotification({

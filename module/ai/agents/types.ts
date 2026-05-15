@@ -18,8 +18,23 @@ export interface SpecialistReport {
 
 export interface CriticReport {
   verifiedFindings: (AgentFinding & { agentName: string })[];
-  rejectedFindings: { finding: AgentFinding; reason: string }[];
+  rejectedFindings: { finding: AgentFinding & { agentName?: string }; reason: string }[];
   overallRisk: "critical" | "high" | "medium" | "low";
+  /** Distilled DO-NOT rules derived from rejection patterns — fed back into specialist prompts */
+  rejectionPatterns?: RejectionPattern[];
+}
+
+/**
+ * A pattern distilled from rejected findings.
+ * Used to build "DO NOT report X" rules fed back into specialist prompts.
+ */
+export interface RejectionPattern {
+  /** Which specialist agent this pattern targets */
+  agentName: string;
+  /** Short description of the class of false positives to avoid */
+  rule: string;
+  /** How many times this pattern was seen (for relevance ranking) */
+  count: number;
 }
 
 export interface FinalReview {
