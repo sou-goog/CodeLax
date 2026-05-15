@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import HeroAnimation from "@/components/hero-animation";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AnimatedCounter } from "@/components/animated-counter";
+import { PipelineVisual } from "@/components/pipeline-visual";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +28,7 @@ export default async function Home() {
     }
 
     return (
-        <div className="min-h-screen bg-background text-foreground font-sans antialiased overflow-x-hidden">
+        <div className="min-h-screen bg-background text-foreground font-sans antialiased overflow-x-hidden scroll-smooth">
             {/* ── Header ── */}
             <header className="bg-background/80 backdrop-blur-xl border-b border-border/40 sticky top-0 z-50">
                 <div className="flex justify-between items-center w-full px-6 py-3 max-w-7xl mx-auto">
@@ -39,6 +41,7 @@ export default async function Home() {
                     <nav className="hidden md:flex items-center gap-7">
                         <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</a>
                         <a href="#agents" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Agents</a>
+                        <a href="#pipeline" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Pipeline</a>
                         <a href="#context" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Context</a>
                         <Link href="/about" className="text-sm text-muted-foreground hover:text-foreground transition-colors">About</Link>
                     </nav>
@@ -64,7 +67,7 @@ export default async function Home() {
                             Cut code review time
                             <br />
                             &amp; bugs in half,{" "}
-                            <span className="bg-gradient-to-r from-violet-400 via-violet-500 to-purple-600 bg-clip-text text-transparent">instantly.</span>
+                            <span className="bg-gradient-to-r from-violet-400 via-violet-500 to-purple-600 bg-clip-text text-transparent animate-gradient bg-[length:200%_200%]">instantly.</span>
                         </h1>
                         <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
                             AI-powered multi-agent reviews for teams who move fast (but don&apos;t break things).
@@ -96,10 +99,7 @@ export default async function Home() {
                             { value: "Auto", label: "On Every PR" },
                             { value: "RAG", label: "Codebase Context" },
                         ].map((s) => (
-                            <div key={s.label} className="flex flex-col items-center py-8 md:py-10">
-                                <span className="text-3xl md:text-4xl font-extrabold text-foreground tracking-tight">{s.value}</span>
-                                <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider mt-1">{s.label}</span>
-                            </div>
+                            <AnimatedCounter key={s.label} value={s.value} label={s.label} />
                         ))}
                     </div>
                 </section>
@@ -199,6 +199,40 @@ export default async function Home() {
                                     </div>
                                     <h3 className="text-xl font-bold text-foreground mb-3">{c.title}</h3>
                                     <p className="text-sm text-muted-foreground leading-relaxed">{c.desc}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+
+                {/* ── PIPELINE VISUALIZATION ── */}
+                <section id="pipeline" className="py-24 md:py-32">
+                    <div className="text-center mb-16">
+                        <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight text-foreground">See the pipeline in action.</h2>
+                        <p className="text-muted-foreground text-lg mt-4 max-w-xl mx-auto">From PR webhook to posted review — fully automated, every time.</p>
+                    </div>
+                    <PipelineVisual />
+                </section>
+
+                {/* ── TECH STACK ── */}
+                <section className="py-20 md:py-28 bg-muted/30 border-y border-border">
+                    <div className="max-w-7xl mx-auto px-6">
+                        <div className="text-center mb-12">
+                            <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight text-foreground">Built with modern tech.</h2>
+                            <p className="text-muted-foreground text-lg mt-4 max-w-xl mx-auto">Production-grade infrastructure powering every review.</p>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+                            {[
+                                { name: "Next.js", desc: "App Router" },
+                                { name: "Inngest", desc: "Orchestration" },
+                                { name: "Prisma", desc: "ORM + Postgres" },
+                                { name: "Pinecone", desc: "RAG Vectors" },
+                                { name: "Groq", desc: "LLM Inference" },
+                                { name: "GitHub", desc: "Webhooks + API" },
+                            ].map((t) => (
+                                <div key={t.name} className="bg-card border border-border rounded-xl p-4 text-center hover:border-violet-500/30 transition-all hover:-translate-y-0.5 group">
+                                    <p className="text-sm font-bold text-foreground group-hover:text-violet-400 transition-colors">{t.name}</p>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">{t.desc}</p>
                                 </div>
                             ))}
                         </div>
@@ -349,7 +383,7 @@ export default async function Home() {
                 </div>
                 <div className="border-t border-border">
                     <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col sm:flex-row justify-between items-center gap-3">
-                        <span className="text-xs text-muted-foreground">&copy; 2025 CodeLax. All rights reserved.</span>
+                        <span className="text-xs text-muted-foreground">&copy; 2026 CodeLax. All rights reserved.</span>
                         <div className="flex items-center gap-4">
                             <a href="https://github.com" target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground transition-colors"><Github className="w-4 h-4" /></a>
                         </div>
