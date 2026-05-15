@@ -72,7 +72,8 @@ Numbered list ordered by priority. Each item = one sentence with the file and wh
 - Be direct. No filler, no fluff, no generic advice.
 - Reference real variable names, function names, and files from the diff.
 - If 0 findings, keep it short: confirm the PR looks clean and highlight what's done well.
-- Never invent findings that weren't in the verified list.`,
+- Never invent findings that weren't in the verified list.
+- If any two findings in different categories relate to the same root cause, explicitly call that out as a **compound issue** — these are the most important findings because they indicate a deeper architectural problem.`,
     prompt: `PR Title: ${title}
 PR Description: ${description || "No description provided"}
 Overall Risk Level: ${criticReport.overallRisk.toUpperCase()}

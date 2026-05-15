@@ -217,11 +217,12 @@ export const generateReviewMultiAgent = inngest.createFunction(
       const languages = plan.languages?.length ? plan.languages : [];
       const langContext = languages.length ? [`This PR is primarily written in: ${languages.join(", ")}. Tailor your analysis to ${languages[0]}-specific patterns and best practices.`] : [];
       const instructions = [...langContext, ...(config.instructions || [])];
+      const hints = plan.agentFocusHints || {};
       const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
-        security: () => runSecurityAgent(processedDiff, context, title, instructions),
-        performance: () => runPerformanceAgent(processedDiff, context, title, instructions),
-        logic: () => runLogicAgent(processedDiff, context, title, instructions),
-        style: () => runStyleAgent(processedDiff, context, title, instructions),
+        security: () => runSecurityAgent(processedDiff, context, title, instructions, hints.security),
+        performance: () => runPerformanceAgent(processedDiff, context, title, instructions, hints.performance),
+        logic: () => runLogicAgent(processedDiff, context, title, instructions, hints.logic),
+        style: () => runStyleAgent(processedDiff, context, title, instructions, hints.style),
       };
 
       const activeAgents = agentsToRun.filter((name) => agentRunners[name]);
@@ -248,7 +249,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
     // Step 6: Critic Agent — deduplicates and filters findings
     await updateStep(reviewRecord?.id, "critic");
     const criticReport = await step.run("critic", () =>
-      runCritic(reports)
+      runCritic(reports, processedDiff, title)
     );
 
     // Send Slack notification for critical/high findings (non-blocking)

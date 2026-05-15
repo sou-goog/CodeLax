@@ -5,7 +5,8 @@ export async function runStyleAgent(
   diff: string,
   context: string[],
   title: string,
-  customInstructions?: string[]
+  customInstructions?: string[],
+  focusHint?: string
 ): Promise<SpecialistReport> {
   const text = await generateTextWithFallback({
     model: getModel("specialist"),
@@ -56,7 +57,8 @@ Example output:
     prompt: `PR Title: ${title}
 
 Codebase Context (from vector search):
-${context.length > 0 ? context.join("\n---\n") : "No additional context available."}
+${context.length > 0 ? context.map((c, i) => `[Related file ${i+1}]:\n${c}`).join("\n---\n") : "No additional context available."}
+${focusHint ? `\nPlanner Focus Hint: ${focusHint}` : ""}
 
 Code Changes:
 \`\`\`diff
