@@ -61,16 +61,16 @@ export function NotificationBell() {
         onClick={() => setOpen(!open)}
         className="relative p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
       >
-        <Bell className="w-4.5 h-4.5" />
+        <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 w-4.5 h-4.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center shadow-sm shadow-red-500/50 animate-in zoom-in duration-200">
+          <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 ring-2 ring-background">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-card border border-border rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-background border border-border rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <h3 className="text-sm font-bold text-foreground">Notifications</h3>
@@ -103,8 +103,8 @@ export function NotificationBell() {
                 return (
                   <div
                     key={n.id}
-                    className={`flex items-start gap-3 px-4 py-3 border-b border-border/40 hover:bg-muted/30 transition-colors ${
-                      !n.read ? "bg-violet-500/[0.03]" : ""
+                    className={`flex items-start gap-3 px-4 py-3 border-b border-border/50 hover:bg-muted/40 transition-colors ${
+                      !n.read ? "bg-muted/20" : ""
                     }`}
                   >
                     <div className={`w-7 h-7 rounded-lg ${tc.bg} flex items-center justify-center shrink-0 mt-0.5 ${tc.color}`}>
