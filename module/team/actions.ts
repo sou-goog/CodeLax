@@ -12,6 +12,27 @@ function slugify(name: string) {
     .slice(0, 48);
 }
 
+export async function getTeamById(teamId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const membership = await prisma.team_member.findUnique({
+    where: { teamId_userId: { teamId, userId: session.user.id } },
+  });
+  if (!membership) throw new Error("Not a team member");
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    include: {
+      members: { include: { user: { select: { id: true, name: true, email: true, image: true } } } },
+      repositories: { select: { id: true, fullName: true, language: true, stars: true } },
+      _count: { select: { members: true, repositories: true } },
+    },
+  });
+
+  return team ? { ...team, myRole: membership.role } : null;
+}
+
 export async function getMyTeams() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -227,6 +248,70 @@ export async function assignRepoToTeam(teamId: string, repositoryId: string) {
   await prisma.repository.update({
     where: { id: repositoryId },
     data: { teamId },
+  });
+}
+
+export async function unassignRepoFromTeam(teamId: string, repositoryId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const caller = await prisma.team_member.findUnique({
+    where: { teamId_userId: { teamId, userId: session.user.id } },
+  });
+  if (!caller || !["admin", "reviewer"].includes(caller.role)) throw new Error("Insufficient permissions");
+
+  await prisma.repository.update({
+    where: { id: repositoryId },
+    data: { teamId: null },
+  });
+}
+
+export async function getAssignableRepos(teamId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const caller = await prisma.team_member.findUnique({
+    where: { teamId_userId: { teamId, userId: session.user.id } },
+  });
+  if (!caller || !["admin", "reviewer"].includes(caller.role)) return [];
+
+  // Get all repos owned by team members that aren't already assigned to this team
+  const memberIds = (
+    await prisma.team_member.findMany({ where: { teamId }, select: { userId: true } })
+  ).map((m) => m.userId);
+
+  return prisma.repository.findMany({
+    where: {
+      userId: { in: memberIds },
+      OR: [{ teamId: null }, { teamId: { not: teamId } }],
+    },
+    select: { id: true, fullName: true, userId: true, user: { select: { name: true } } },
+    orderBy: { fullName: "asc" },
+  });
+}
+
+export async function getTeamReviews(teamId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const caller = await prisma.team_member.findUnique({
+    where: { teamId_userId: { teamId, userId: session.user.id } },
+  });
+  if (!caller) throw new Error("Not a team member");
+
+  const repos = await prisma.repository.findMany({
+    where: { teamId },
+    select: { id: true },
+  });
+
+  return prisma.review.findMany({
+    where: { repositoryId: { in: repos.map((r) => r.id) } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    include: {
+      repository: { select: { fullName: true } },
+      _count: { select: { findings: true } },
+    },
   });
 }
 

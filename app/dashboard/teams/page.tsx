@@ -12,9 +12,10 @@ import {
   Users, Plus, Mail, Shield, Eye, Pencil, Crown,
   Loader2, UserMinus, ChevronDown, ChevronRight,
   FolderOpen, Copy, Check, X, Clock, CheckCircle2, XCircle,
-  MailOpen,
+  MailOpen, ExternalLink,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import Link from "next/link";
 
 const roleConfig: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
   admin: { label: "Admin", icon: <Crown className="w-3 h-3" />, color: "text-amber-400" },
@@ -313,6 +314,14 @@ function TeamCard({
           {roleConfig[team.myRole]?.label || team.myRole}
         </div>
       </button>
+      <div className="px-5 pb-2 pt-0 flex justify-end -mt-1">
+        <Link
+          href={`/dashboard/teams/${team.id}`}
+          className="text-[11px] text-violet-400 hover:text-violet-300 font-medium flex items-center gap-1 transition-colors"
+        >
+          Open Team <ExternalLink className="w-3 h-3" />
+        </Link>
+      </div>
 
       {expanded && (
         <div className="border-t border-border">
