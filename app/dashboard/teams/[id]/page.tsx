@@ -6,13 +6,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getTeamById, getTeamAnalytics, getTeamReviews,
   getAssignableRepos, assignRepoToTeam, unassignRepoFromTeam,
+  getTeamLeaderboard,
 } from "@/module/team/actions";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   ArrowLeft, Users, FolderOpen, BrainCircuit, Plus, Minus,
   BarChart3, GitPullRequest, AlertTriangle, CheckCircle2, XCircle,
   Loader2, Clock, Crown, Pencil, Eye, Star, Code,
-  ExternalLink, TrendingUp, FileCode2, Shield,
+  ExternalLink, TrendingUp, FileCode2, Shield, Trophy, Medal,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -34,7 +35,7 @@ export default function TeamDetailPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const teamId = params.id as string;
-  const [activeTab, setActiveTab] = useState<"overview" | "repos" | "reviews">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "repos" | "reviews" | "leaderboard">("overview");
   const [assigningRepo, setAssigningRepo] = useState("");
 
   const { data: team, isLoading, isError, refetch } = useQuery({
@@ -58,6 +59,12 @@ export default function TeamDetailPage() {
     queryKey: ["assignable-repos", teamId],
     queryFn: () => getAssignableRepos(teamId),
     enabled: !!team && activeTab === "repos",
+  });
+
+  const { data: leaderboard = [] } = useQuery({
+    queryKey: ["team-leaderboard", teamId],
+    queryFn: () => getTeamLeaderboard(teamId),
+    enabled: !!team && (activeTab === "leaderboard" || activeTab === "overview"),
   });
 
   const canManageRepos = team?.myRole === "admin" || team?.myRole === "reviewer";
@@ -176,7 +183,7 @@ export default function TeamDetailPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted/60 p-1 rounded-xl w-fit border border-border/40">
-        {(["overview", "repos", "reviews"] as const).map((tab) => (
+        {(["overview", "repos", "reviews", "leaderboard"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -186,7 +193,7 @@ export default function TeamDetailPage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            {tab === "overview" ? "Overview" : tab === "repos" ? `Repos (${team._count.repositories})` : "Reviews"}
+            {tab === "overview" ? "Overview" : tab === "repos" ? `Repos (${team._count.repositories})` : tab === "leaderboard" ? "Leaderboard" : "Reviews"}
           </button>
         ))}
       </div>
@@ -345,6 +352,88 @@ export default function TeamDetailPage() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "leaderboard" && (
+        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-amber-400" />
+              Team Leaderboard
+            </h3>
+            <span className="text-[11px] text-muted-foreground">{leaderboard.length} member{leaderboard.length !== 1 ? "s" : ""}</span>
+          </div>
+          {leaderboard.length === 0 ? (
+            <div className="px-5 py-12 text-center">
+              <Trophy className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No leaderboard data yet</p>
+              <p className="text-[11px] text-muted-foreground/60 mt-1">Assign repos and run reviews to populate the leaderboard.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/50">
+              {leaderboard.map((member: any, i: number) => {
+                const rc = roleConfig[member.role] || roleConfig.viewer;
+                const medals = ["🥇", "🥈", "🥉"];
+                const maxReviews = leaderboard[0]?.reviews || 1;
+                return (
+                  <div key={member.userId} className={`px-5 py-4 flex items-center gap-4 ${i === 0 && member.reviews > 0 ? "bg-amber-500/[0.03]" : ""}`}>
+                    <div className="w-8 text-center shrink-0">
+                      {i < 3 && member.reviews > 0 ? (
+                        <span className="text-lg">{medals[i]}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground font-bold">#{i + 1}</span>
+                      )}
+                    </div>
+                    {member.image ? (
+                      <img src={member.image} alt="" className="w-9 h-9 rounded-full border border-border shrink-0" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-violet-500/20 border border-violet-500/30 flex items-center justify-center text-[10px] font-bold text-violet-400 shrink-0">
+                        {member.name?.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-foreground truncate">{member.name}</p>
+                        <span className={`flex items-center gap-1 text-[9px] font-bold ${rc.color}`}>
+                          {rc.icon} {rc.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 mt-1">
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <BrainCircuit className="w-3 h-3" /> {member.reviews} reviews
+                        </span>
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" /> {member.findings} findings
+                        </span>
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <FolderOpen className="w-3 h-3" /> {member.repos} repos
+                        </span>
+                        {member.lastActive && (
+                          <span className="text-[10px] text-muted-foreground/60">
+                            Last active {formatDistanceToNow(new Date(member.lastActive), { addSuffix: true })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="w-28 shrink-0">
+                      <div className="bg-muted rounded-full h-2 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            i === 0 ? "bg-amber-500" : i === 1 ? "bg-gray-400" : i === 2 ? "bg-amber-700" : "bg-violet-500"
+                          }`}
+                          style={{ width: `${(member.reviews / maxReviews) * 100}%`, minWidth: member.reviews > 0 ? "6px" : "0px" }}
+                        />
+                      </div>
+                      <p className="text-[9px] text-muted-foreground text-right mt-1">
+                        {member.reviews > 0 ? `${Math.round((member.reviews / maxReviews) * 100)}%` : "—"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

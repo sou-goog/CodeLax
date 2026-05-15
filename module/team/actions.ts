@@ -353,3 +353,60 @@ export async function getTeamAnalytics(teamId: string) {
 
   return { totalReviews, totalFindings, repos, recentReviews };
 }
+
+export async function getTeamLeaderboard(teamId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const caller = await prisma.team_member.findUnique({
+    where: { teamId_userId: { teamId, userId: session.user.id } },
+  });
+  if (!caller) throw new Error("Not a team member");
+
+  // Get all team members
+  const members = await prisma.team_member.findMany({
+    where: { teamId },
+    include: { user: { select: { id: true, name: true, image: true, email: true } } },
+  });
+
+  // Get repos assigned to this team
+  const repoIds = (
+    await prisma.repository.findMany({ where: { teamId }, select: { id: true, userId: true } })
+  );
+
+  // For each member, count reviews and findings on their repos that are in the team
+  const leaderboard = await Promise.all(
+    members.map(async (m) => {
+      const memberRepoIds = repoIds.filter((r) => r.userId === m.userId).map((r) => r.id);
+
+      const [reviewCount, findingCount, lastReview] = await Promise.all([
+        memberRepoIds.length > 0
+          ? prisma.review.count({ where: { repositoryId: { in: memberRepoIds }, status: "completed" } })
+          : Promise.resolve(0),
+        memberRepoIds.length > 0
+          ? prisma.review_finding.count({ where: { review: { repositoryId: { in: memberRepoIds } } } })
+          : Promise.resolve(0),
+        memberRepoIds.length > 0
+          ? prisma.review.findFirst({
+              where: { repositoryId: { in: memberRepoIds } },
+              orderBy: { createdAt: "desc" },
+              select: { createdAt: true },
+            })
+          : Promise.resolve(null),
+      ]);
+
+      return {
+        userId: m.userId,
+        name: m.user.name || m.user.email,
+        image: m.user.image,
+        role: m.role,
+        reviews: reviewCount,
+        findings: findingCount,
+        repos: memberRepoIds.length,
+        lastActive: lastReview?.createdAt || null,
+      };
+    })
+  );
+
+  return leaderboard.sort((a, b) => b.reviews - a.reviews || b.findings - a.findings);
+}
