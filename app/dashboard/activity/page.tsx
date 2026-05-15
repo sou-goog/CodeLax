@@ -37,7 +37,7 @@ export default function ActivityPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["activity", filter, cursor],
     queryFn: () => getActivityFeed({ type: filter || undefined, limit: 30, cursor: cursor || undefined }),
   });
@@ -70,7 +70,14 @@ export default function ActivityPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <Activity className="w-12 h-12 text-red-400" />
+          <h3 className="text-lg font-medium text-foreground">Failed to load activity</h3>
+          <p className="text-sm text-muted-foreground">Something went wrong. Please try again.</p>
+          <button onClick={() => refetch()} className="bg-violet-600 hover:bg-violet-500 text-white text-sm px-5 py-2.5 rounded-lg font-medium transition-colors">Retry</button>
+        </div>
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-20">
           <div className="flex flex-col items-center gap-4">
             <div className="relative w-12 h-12">

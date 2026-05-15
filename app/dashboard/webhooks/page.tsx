@@ -16,7 +16,7 @@ export default function WebhooksPage() {
   const queryClient = useQueryClient();
   const [pinging, setPinging] = React.useState<string | null>(null);
 
-  const { data: webhooks = [], isLoading } = useQuery<WebhookInfo[]>({
+  const { data: webhooks = [], isLoading, isError, refetch } = useQuery<WebhookInfo[]>({
     queryKey: ["webhook-health"],
     queryFn: () => getWebhookHealth(),
     refetchOnWindowFocus: false,
@@ -39,6 +39,17 @@ export default function WebhooksPage() {
     ? Math.round(webhooks.reduce((s, w) => s + w.successRate, 0) / webhooks.length)
     : 0;
   const totalDeliveries = webhooks.reduce((s, w) => s + w.recentDeliveries.length, 0);
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <AlertTriangle className="w-12 h-12 text-red-400" />
+        <h3 className="text-lg font-medium text-foreground">Failed to load webhooks</h3>
+        <p className="text-sm text-muted-foreground">Something went wrong. Please try again.</p>
+        <button onClick={() => refetch()} className="bg-violet-600 hover:bg-violet-500 text-white text-sm px-5 py-2.5 rounded-lg font-medium transition-colors">Retry</button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

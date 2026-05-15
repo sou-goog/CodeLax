@@ -37,7 +37,7 @@ export default function TeamDetailPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "repos" | "reviews">("overview");
   const [assigningRepo, setAssigningRepo] = useState("");
 
-  const { data: team, isLoading } = useQuery({
+  const { data: team, isLoading, isError, refetch } = useQuery({
     queryKey: ["team", teamId],
     queryFn: () => getTeamById(teamId),
   });
@@ -99,6 +99,17 @@ export default function TeamDetailPage() {
           </div>
           <p className="text-sm text-muted-foreground">Loading team...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <Users className="w-12 h-12 text-red-400" />
+        <h3 className="text-lg font-medium text-foreground">Failed to load team</h3>
+        <p className="text-sm text-muted-foreground">Something went wrong. Please try again.</p>
+        <button onClick={() => refetch()} className="bg-violet-600 hover:bg-violet-500 text-white text-sm px-5 py-2.5 rounded-lg font-medium transition-colors">Retry</button>
       </div>
     );
   }

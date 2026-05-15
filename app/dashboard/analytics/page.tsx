@@ -41,11 +41,22 @@ function formatMs(ms: number): string {
 }
 
 export default function AnalyticsPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["analytics"],
     queryFn: async () => await getAnalytics(),
     refetchOnWindowFocus: false,
   });
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <AlertTriangle className="w-12 h-12 text-red-400" />
+        <h3 className="text-lg font-medium text-foreground">Failed to load analytics</h3>
+        <p className="text-sm text-muted-foreground">Something went wrong. Please try again.</p>
+        <button onClick={() => refetch()} className="bg-violet-600 hover:bg-violet-500 text-white text-sm px-5 py-2.5 rounded-lg font-medium transition-colors">Retry</button>
+      </div>
+    );
+  }
 
   if (isLoading || !data) {
     return (

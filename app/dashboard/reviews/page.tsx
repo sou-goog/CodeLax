@@ -78,7 +78,7 @@ export default function ReviewsPage() {
   const [sortBy, setSortBy] = React.useState<SortKey>("newest");
   const [showFilters, setShowFilters] = React.useState(false);
 
-  const { data: reviews = [], isLoading, refetch } = useQuery<Review[]>({
+  const { data: reviews = [], isLoading, isError, refetch } = useQuery<Review[]>({
     queryKey: ["reviews"],
     queryFn: async () => await getReviews() as unknown as Review[],
     refetchOnWindowFocus: false,
@@ -174,6 +174,19 @@ export default function ReviewsPage() {
     setSeverityFilter("all");
     setSearchQuery("");
   };
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <XCircle className="w-12 h-12 text-red-400" />
+        <h3 className="text-lg font-medium text-foreground">Failed to load reviews</h3>
+        <p className="text-sm text-muted-foreground">Something went wrong. Please try again.</p>
+        <button onClick={() => refetch()} className="bg-violet-600 hover:bg-violet-500 text-white text-sm px-5 py-2.5 rounded-lg font-medium transition-colors">
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
