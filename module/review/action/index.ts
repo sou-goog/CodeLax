@@ -8,8 +8,23 @@ export async function getReviews() {
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session) throw new Error("Unauthorized");
 
+    // Get team IDs the user belongs to
+    const teamIds = (
+        await prisma.team_member.findMany({
+            where: { userId: session.user.id },
+            select: { teamId: true },
+        })
+    ).map((m) => m.teamId);
+
     return await prisma.review.findMany({
-        where: { repository: { userId: session.user.id } },
+        where: {
+            repository: {
+                OR: [
+                    { userId: session.user.id },
+                    ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []),
+                ],
+            },
+        },
         include: { 
             repository: true,
             findings: true
@@ -23,8 +38,24 @@ export async function getReviewById(reviewId: string) {
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session) throw new Error("Unauthorized");
 
+    // Get team IDs the user belongs to
+    const teamIds = (
+        await prisma.team_member.findMany({
+            where: { userId: session.user.id },
+            select: { teamId: true },
+        })
+    ).map((m) => m.teamId);
+
     return await prisma.review.findFirst({
-        where: { id: reviewId, repository: { userId: session.user.id } },
+        where: {
+            id: reviewId,
+            repository: {
+                OR: [
+                    { userId: session.user.id },
+                    ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []),
+                ],
+            },
+        },
         include: {
             repository: true,
             findings: { orderBy: { createdAt: "asc" } },
