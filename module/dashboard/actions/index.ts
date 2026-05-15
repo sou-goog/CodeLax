@@ -98,6 +98,90 @@ export async function getDashboardStats() {
     }
 }
 
+export async function getDashboardOverview() {
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+
+    // Recent reviews
+    const teamIds = (
+        await prisma.team_member.findMany({ where: { userId }, select: { teamId: true } })
+    ).map((m) => m.teamId);
+
+    const recentReviews = await prisma.review.findMany({
+        where: {
+            repository: {
+                OR: [{ userId }, ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : [])],
+            },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        include: {
+            repository: { select: { fullName: true } },
+            _count: { select: { findings: true } },
+        },
+    });
+
+    // Severity summary from last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const recentFindings = await prisma.review_finding.groupBy({
+        by: ["severity"],
+        where: {
+            review: {
+                createdAt: { gte: thirtyDaysAgo },
+                repository: {
+                    OR: [{ userId }, ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : [])],
+                },
+            },
+        },
+        _count: true,
+    });
+
+    const severitySummary: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const f of recentFindings) {
+        severitySummary[f.severity] = f._count;
+    }
+
+    // Team summary
+    const teams = await prisma.team_member.findMany({
+        where: { userId },
+        include: {
+            team: {
+                select: { id: true, name: true, _count: { select: { members: true, repositories: true } } },
+            },
+        },
+    });
+
+    // Review trend (this week vs last week)
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+
+    const thisWeek = await prisma.review.count({
+        where: { repository: { userId }, createdAt: { gte: oneWeekAgo } },
+    });
+    const lastWeek = await prisma.review.count({
+        where: { repository: { userId }, createdAt: { gte: twoWeeksAgo, lt: oneWeekAgo } },
+    });
+
+    return {
+        recentReviews,
+        severitySummary,
+        teams: teams.map((t) => ({
+            id: t.team.id,
+            name: t.team.name,
+            role: t.role,
+            members: t.team._count.members,
+            repos: t.team._count.repositories,
+        })),
+        trend: { thisWeek, lastWeek, change: lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : thisWeek > 0 ? 100 : 0 },
+    };
+}
+
 export async function getMonthlyActivity() {
     try {
         const session = await auth.api.getSession({
