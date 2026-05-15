@@ -11,6 +11,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { ReviewProgress } from "@/components/review-progress";
+import Link from "next/link";
 
 interface ReviewFinding {
   id: string;
@@ -190,9 +191,18 @@ export default function ReviewsPage() {
 
   return (
     <div className="space-y-6 pb-12">
-      <div>
-        <h1 className="text-[40px] font-semibold tracking-tighter text-foreground mb-2">AI Reviews</h1>
-        <p className="text-muted-foreground">Detailed findings from your multi-agent review pipeline.</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-[40px] font-semibold tracking-tighter text-foreground mb-2">AI Reviews</h1>
+          <p className="text-muted-foreground">Detailed findings from your multi-agent review pipeline.</p>
+        </div>
+        <Link
+          href="/dashboard/reviews/compare"
+          className="bg-card border border-border hover:border-violet-500/40 text-sm px-4 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2 text-muted-foreground hover:text-foreground shrink-0 mt-2"
+        >
+          <ArrowUpDown className="w-4 h-4 text-violet-400" />
+          Compare Reviews
+        </Link>
       </div>
 
       {/* Search & Filter Bar */}
