@@ -86,19 +86,71 @@ export async function inviteToTeam(teamId: string, email: string, role: string =
       role,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
     },
+    include: { team: { select: { name: true } } },
   });
+
+  // Create a notification for the invitee if they have an account
+  if (targetUser) {
+    await prisma.notification.create({
+      data: {
+        userId: targetUser.id,
+        type: "team_invite",
+        title: `You're invited to team "${invite.team.name}"`,
+        message: `${session.user.name} invited you as ${role}. Go to Teams to accept.`,
+        link: "/dashboard/teams",
+      },
+    });
+  }
 
   return invite;
 }
 
-export async function acceptInvite(token: string) {
+export async function getMyPendingInvites() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  const invite = await prisma.team_invite.findUnique({ where: { token } });
+  return prisma.team_invite.findMany({
+    where: {
+      email: { equals: session.user.email, mode: "insensitive" },
+      expiresAt: { gt: new Date() },
+    },
+    include: { team: { select: { id: true, name: true, slug: true, _count: { select: { members: true } } } } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getPendingInvitesForTeam(teamId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const caller = await prisma.team_member.findUnique({
+    where: { teamId_userId: { teamId, userId: session.user.id } },
+  });
+  if (!caller || caller.role !== "admin") throw new Error("Only admins can view invites");
+
+  return prisma.team_invite.findMany({
+    where: { teamId, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function acceptInvite(inviteId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const invite = await prisma.team_invite.findUnique({ where: { id: inviteId } });
   if (!invite) throw new Error("Invalid invite");
   if (invite.expiresAt < new Date()) throw new Error("Invite expired");
-  if (invite.email !== session.user.email) throw new Error("Invite is for a different email");
+  if (invite.email.toLowerCase() !== session.user.email.toLowerCase()) throw new Error("Invite is for a different email");
+
+  // Check not already a member
+  const existing = await prisma.team_member.findUnique({
+    where: { teamId_userId: { teamId: invite.teamId, userId: session.user.id } },
+  });
+  if (existing) {
+    await prisma.team_invite.delete({ where: { id: invite.id } });
+    throw new Error("You are already a member of this team");
+  }
 
   await prisma.team_member.create({
     data: { teamId: invite.teamId, userId: session.user.id, role: invite.role },
@@ -107,6 +159,29 @@ export async function acceptInvite(token: string) {
   await prisma.team_invite.delete({ where: { id: invite.id } });
 
   return { teamId: invite.teamId };
+}
+
+export async function declineInvite(inviteId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const invite = await prisma.team_invite.findUnique({ where: { id: inviteId } });
+  if (!invite) throw new Error("Invalid invite");
+  if (invite.email.toLowerCase() !== session.user.email.toLowerCase()) throw new Error("Not your invite");
+
+  await prisma.team_invite.delete({ where: { id: invite.id } });
+}
+
+export async function cancelInvite(teamId: string, inviteId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const caller = await prisma.team_member.findUnique({
+    where: { teamId_userId: { teamId, userId: session.user.id } },
+  });
+  if (!caller || caller.role !== "admin") throw new Error("Only admins can cancel invites");
+
+  await prisma.team_invite.delete({ where: { id: inviteId } });
 }
 
 export async function updateMemberRole(teamId: string, userId: string, role: string) {

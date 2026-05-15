@@ -16,6 +16,7 @@ const typeConfig: Record<string, { icon: React.ReactNode; color: string; bg: str
   critical_finding: { icon: <AlertTriangle className="w-3.5 h-3.5" />, color: "text-red-400", bg: "bg-red-500/10" },
   high_finding: { icon: <AlertTriangle className="w-3.5 h-3.5" />, color: "text-orange-400", bg: "bg-orange-500/10" },
   webhook_failed: { icon: <Webhook className="w-3.5 h-3.5" />, color: "text-yellow-400", bg: "bg-yellow-500/10" },
+  team_invite: { icon: <Bell className="w-3.5 h-3.5" />, color: "text-pink-400", bg: "bg-pink-500/10" },
   new_review: { icon: <BrainCircuit className="w-3.5 h-3.5" />, color: "text-violet-400", bg: "bg-violet-500/10" },
 };
 
