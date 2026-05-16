@@ -3,6 +3,7 @@
 import React from 'react'
 import ProfileForm from "@/module/settings/actions/components/profile-form";
 import { RepositoryList } from "@/module/settings/components/repository-list";
+import { ExtensionSettings } from "@/module/settings/components/extension-settings";
 
 const SettingPage = () => {
     return (
@@ -13,6 +14,7 @@ const SettingPage = () => {
             </div>
             <ProfileForm />
             <RepositoryList />
+            <ExtensionSettings />
         </div>
     )
 }
