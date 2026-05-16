@@ -93,7 +93,7 @@ export function ExtensionSettings() {
               disabled={loading || generating}
               className="px-4 py-2 bg-card border border-border text-foreground hover:bg-muted text-sm font-medium rounded-xl transition-all flex items-center gap-2 disabled:opacity-50"
             >
-              <RefreshCw className={\`w-4 h-4 \${generating ? "animate-spin" : ""}\`} />
+              <RefreshCw className={"w-4 h-4 " + (generating ? "animate-spin" : "")} />
               Regenerate
             </button>
           </div>
