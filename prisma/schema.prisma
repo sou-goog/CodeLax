@@ -65,19 +65,21 @@ model session {
 }
 
 model user {
-  id            String         @id
-  name          String
-  email         String         @unique
-  emailVerified Boolean        @default(false)
-  image         String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime
-  account       account[]
-  repository    repository[]
-  session       session[]
-  notification  notification[]
-  teamMembers   team_member[]
-  activities    activity_event[]
+  id               String         @id
+  name             String
+  email            String         @unique
+  emailVerified    Boolean        @default(false)
+  image            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime
+  /** API key for the VS Code extension — generated on demand */
+  extensionApiKey  String?        @unique
+  account          account[]
+  repository       repository[]
+  session          session[]
+  notification     notification[]
+  teamMembers      team_member[]
+  activities       activity_event[]
 }
 
 model team {

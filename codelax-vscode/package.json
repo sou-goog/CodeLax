@@ -1,0 +1,111 @@
+{
+  "name": "codelax",
+  "displayName": "CodeLax — AI Code Reviewer",
+  "description": "Multi-agent AI code review directly in VS Code. See findings, inline diagnostics, and trigger reviews without leaving your editor.",
+  "version": "1.0.0",
+  "publisher": "codelax",
+  "icon": "media/icon.png",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other", "Linters"],
+  "keywords": ["AI", "code review", "GitHub", "pull request", "security"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codelax",
+          "title": "CodeLax",
+          "icon": "media/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "codelax": [
+        {
+          "type": "webview",
+          "id": "codelax.sidebar",
+          "name": "AI Reviews"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "codelax.refresh",
+        "title": "CodeLax: Refresh Reviews",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codelax.configure",
+        "title": "CodeLax: Configure API Key",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "codelax.openInBrowser",
+        "title": "CodeLax: Open in Browser",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "codelax.jumpToFinding",
+        "title": "CodeLax: Jump to Finding"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "codelax.refresh",
+          "when": "view == codelax.sidebar",
+          "group": "navigation"
+        },
+        {
+          "command": "codelax.configure",
+          "when": "view == codelax.sidebar",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CodeLax",
+      "properties": {
+        "codelax.serverUrl": {
+          "type": "string",
+          "default": "https://code-lax.vercel.app",
+          "description": "Your CodeLax server URL (Vercel deployment or localhost)"
+        },
+        "codelax.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your CodeLax Extension API Key (get it from Dashboard → Settings → Extension)"
+        },
+        "codelax.autoRefreshInterval": {
+          "type": "number",
+          "default": 60,
+          "description": "Auto-refresh interval in seconds (0 to disable)"
+        },
+        "codelax.showInlineDecorations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline finding decorations in the editor"
+        },
+        "codelax.minSeverityForDiagnostics": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"],
+          "default": "medium",
+          "description": "Minimum severity to show as VS Code diagnostics (squiggly underlines)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.24.0"
+  }
+}
