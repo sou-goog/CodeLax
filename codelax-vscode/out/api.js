@@ -37,6 +37,7 @@ exports.fetchReviews = fetchReviews;
 exports.fetchRepos = fetchRepos;
 exports.isConfigured = isConfigured;
 exports.getServerUrl = getServerUrl;
+exports.localReview = localReview;
 const vscode = __importStar(require("vscode"));
 function getConfig() {
     const cfg = vscode.workspace.getConfiguration("codelax");
@@ -76,5 +77,23 @@ function isConfigured() {
 }
 function getServerUrl() {
     return getConfig().serverUrl;
+}
+async function localReview(req) {
+    const { serverUrl, apiKey } = getConfig();
+    if (!apiKey)
+        throw new Error("No API key configured. Run 'CodeLax: Configure API Key'.");
+    const res = await fetch(`${serverUrl}/api/extension/local-review`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`CodeLax API error ${res.status}: ${text.slice(0, 200)}`);
+    }
+    return res.json();
 }
 //# sourceMappingURL=api.js.map

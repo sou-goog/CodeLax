@@ -84,3 +84,39 @@ export function isConfigured(): boolean {
 export function getServerUrl(): string {
   return getConfig().serverUrl;
 }
+
+export interface LocalReviewRequest {
+  code?: string;
+  diff?: string;
+  fileName?: string;
+  language?: string;
+  title?: string;
+}
+
+export interface LocalReviewResponse {
+  findings: ReviewFinding[];
+  overallRisk: string;
+  rejected: number;
+  agents: string[];
+}
+
+export async function localReview(req: LocalReviewRequest): Promise<LocalReviewResponse> {
+  const { serverUrl, apiKey } = getConfig();
+  if (!apiKey) throw new Error("No API key configured. Run 'CodeLax: Configure API Key'.");
+
+  const res = await fetch(`${serverUrl}/api/extension/local-review`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(req),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`CodeLax API error ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  return res.json() as Promise<LocalReviewResponse>;
+}

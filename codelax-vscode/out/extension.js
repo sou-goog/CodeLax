@@ -37,22 +37,25 @@ exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
+const child_process_1 = require("child_process");
+const util_1 = require("util");
 const api_1 = require("./api");
 const diagnostics_1 = require("./diagnostics");
 const codelens_1 = require("./codelens");
 const sidebar_1 = require("./sidebar");
 const statusbar_1 = require("./statusbar");
+const execAsync = (0, util_1.promisify)(child_process_1.exec);
 let refreshTimer;
 /** Detect the current git repo owner/name from the workspace. */
 async function detectCurrentRepo() {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0)
         return null;
-    // Try reading .git/config to find remote origin URL
+    // Try reading .git/config to find remote origin URL (works with GitHub, GitLab, Bitbucket)
     try {
         const gitConfigUri = vscode.Uri.joinPath(folders[0].uri, ".git", "config");
         const raw = Buffer.from(await vscode.workspace.fs.readFile(gitConfigUri)).toString("utf-8");
-        const match = raw.match(/url\s*=\s*.*github\.com[:/]([^/]+)\/([^\s.]+)/i);
+        const match = raw.match(/url\s*=\s*.*(?:github|gitlab|bitbucket)\.[^:/]*[:/]([^/]+)\/([^\s.]+)/i);
         if (match)
             return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
     }
@@ -139,6 +142,120 @@ async function activate(ctx) {
         refresh();
     }), vscode.commands.registerCommand("codelax.openInBrowser", () => {
         vscode.env.openExternal(vscode.Uri.parse(`${vscode.workspace.getConfiguration("codelax").get("serverUrl")}/dashboard/reviews`));
+    }), vscode.commands.registerCommand("codelax.reviewFile", async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showWarningMessage("No active file to review.");
+            return;
+        }
+        const doc = editor.document;
+        const fileName = vscode.workspace.asRelativePath(doc.uri, false);
+        const langMap = {
+            typescript: "typescript", javascript: "javascript", python: "python",
+            java: "java", go: "go", rust: "rust", csharp: "c#", cpp: "c++",
+            c: "c", ruby: "ruby", php: "php", swift: "swift", kotlin: "kotlin",
+        };
+        const language = langMap[doc.languageId] ?? doc.languageId;
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "CodeLax: Reviewing file…", cancellable: false }, async () => {
+            try {
+                const result = await (0, api_1.localReview)({
+                    code: doc.getText(),
+                    fileName,
+                    language,
+                    title: `Review ${fileName}`,
+                });
+                if (result.findings.length === 0) {
+                    vscode.window.showInformationMessage(`CodeLax: No issues found in ${fileName}! 🎉`);
+                    return;
+                }
+                // Show findings as quick review (convert to Review format for diagnostics)
+                const pseudoReview = {
+                    id: "local-" + Date.now(),
+                    prNumber: 0,
+                    prTitle: `Local: ${fileName}`,
+                    prUrl: "",
+                    status: "completed",
+                    currentStep: "done",
+                    durationMs: 0,
+                    createdAt: new Date().toISOString(),
+                    completedAt: new Date().toISOString(),
+                    findings: result.findings.map((f, i) => ({
+                        id: `local-${i}`,
+                        agentName: f.agentName,
+                        severity: f.severity,
+                        confidence: f.confidence,
+                        file: f.file,
+                        startLine: f.startLine,
+                        endLine: f.startLine,
+                        title: f.title,
+                        description: f.description,
+                        suggestion: f.suggestion,
+                    })),
+                };
+                diagnostics.update([pseudoReview]);
+                codelens.update([pseudoReview]);
+                statusBar.setReviews([pseudoReview]);
+                sidebar.setReviews([pseudoReview], `local/${fileName}`);
+                vscode.window.showInformationMessage(`CodeLax: Found ${result.findings.length} issue(s) (${result.overallRisk} risk)`);
+            }
+            catch (err) {
+                vscode.window.showErrorMessage(`CodeLax: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        });
+    }), vscode.commands.registerCommand("codelax.reviewStaged", async () => {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) {
+            vscode.window.showWarningMessage("No workspace folder open.");
+            return;
+        }
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "CodeLax: Reviewing staged changes…", cancellable: false }, async () => {
+            try {
+                const { stdout: diff } = await execAsync("git diff --staged", { cwd: root, maxBuffer: 1024 * 1024 });
+                if (!diff.trim()) {
+                    vscode.window.showWarningMessage("No staged changes found. Stage some files with `git add` first.");
+                    return;
+                }
+                const result = await (0, api_1.localReview)({
+                    diff,
+                    title: "Review staged changes",
+                });
+                if (result.findings.length === 0) {
+                    vscode.window.showInformationMessage("CodeLax: Staged changes look clean! 🎉");
+                    return;
+                }
+                const pseudoReview = {
+                    id: "staged-" + Date.now(),
+                    prNumber: 0,
+                    prTitle: "Staged Changes",
+                    prUrl: "",
+                    status: "completed",
+                    currentStep: "done",
+                    durationMs: 0,
+                    createdAt: new Date().toISOString(),
+                    completedAt: new Date().toISOString(),
+                    findings: result.findings.map((f, i) => ({
+                        id: `staged-${i}`,
+                        agentName: f.agentName,
+                        severity: f.severity,
+                        confidence: f.confidence,
+                        file: f.file,
+                        startLine: f.startLine,
+                        endLine: f.startLine,
+                        title: f.title,
+                        description: f.description,
+                        suggestion: f.suggestion,
+                    })),
+                };
+                diagnostics.update([pseudoReview]);
+                codelens.update([pseudoReview]);
+                statusBar.setReviews([pseudoReview]);
+                sidebar.setReviews([pseudoReview], "staged changes");
+                vscode.window.showInformationMessage(`CodeLax: Found ${result.findings.length} issue(s) in staged changes (${result.overallRisk} risk)`);
+            }
+            catch (err) {
+                vscode.window.showErrorMessage(`CodeLax: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        });
     }), vscode.commands.registerCommand("codelax.jumpToFinding", async (finding) => {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
         const absPath = path.isAbsolute(finding.file)

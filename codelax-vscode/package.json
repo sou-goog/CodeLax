@@ -45,6 +45,16 @@
         "icon": "$(link-external)"
       },
       {
+        "command": "codelax.reviewFile",
+        "title": "CodeLax: Review Current File",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "codelax.reviewStaged",
+        "title": "CodeLax: Review Staged Changes",
+        "icon": "$(git-commit)"
+      },
+      {
         "command": "codelax.jumpToFinding",
         "title": "CodeLax: Jump to Finding"
       }

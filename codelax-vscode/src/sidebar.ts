@@ -52,12 +52,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
         const absPath = path.isAbsolute(file) ? file : path.join(root, file);
         const uri = vscode.Uri.file(absPath);
-        vscode.workspace.openTextDocument(uri).then((doc) => {
-          vscode.window.showTextDocument(doc, {
-            selection: new vscode.Range(Math.max(0, line - 1), 0, Math.max(0, line - 1), 0),
-            preserveFocus: false,
-          });
-        });
+        vscode.workspace.openTextDocument(uri).then(
+          (doc) => {
+            vscode.window.showTextDocument(doc, {
+              selection: new vscode.Range(Math.max(0, line - 1), 0, Math.max(0, line - 1), 0),
+              preserveFocus: false,
+            });
+          },
+          () => {
+            vscode.window.showWarningMessage(`CodeLax: Could not open file "${file}". Make sure the repo is open in this workspace.`);
+          }
+        );
         break;
       }
     }
@@ -209,10 +214,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const color = SEVERITY_COLOR[f.severity] ?? "#71717a";
     const agentColor = AGENT_COLOR[f.agentName] ?? "#71717a";
     const lineInfo = f.startLine ? `L${f.startLine}` : "";
-    const jumpPayload = JSON.stringify({ file: f.file, line: f.startLine ?? 1 });
+    const safeFile = f.file.replace(/'/g, "\\'");
 
     return `
-      <div class="finding-item" onclick="vscode.postMessage({command:'jumpToFile',payload:${this.escape(jumpPayload)}})">
+      <div class="finding-item" onclick="vscode.postMessage({command:'jumpToFile',payload:{file:'${safeFile}',line:${f.startLine ?? 1}}})">
         <div class="finding-left" style="border-left-color:${color}">
           <div class="finding-top">
             <span class="finding-title">${this.escape(f.title)}</span>
