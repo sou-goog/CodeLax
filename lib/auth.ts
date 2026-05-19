@@ -69,5 +69,32 @@ export const auth = betterAuth({
                 };
             },
         },
+        ...(process.env.GITLAB_CLIENT_ID ? {
+            gitlab: {
+                clientId: process.env.GITLAB_CLIENT_ID!,
+                clientSecret: process.env.GITLAB_CLIENT_SECRET!,
+                scope: ["read_user", "api", "read_repository"],
+                getUserInfo: async (token) => {
+                    const res = await fetch("https://gitlab.com/api/v4/user", {
+                        headers: { Authorization: `Bearer ${token.accessToken}` },
+                    });
+                    if (!res.ok) return null;
+                    const data = await res.json();
+                    return {
+                        user: {
+                            id: String(data.id),
+                            name: data.name || data.username,
+                            email: data.email,
+                            image: data.avatar_url,
+                            emailVerified: !!data.confirmed_at,
+                        },
+                        data,
+                    };
+                },
+            },
+        } : {}),
+        // Bitbucket: not a built-in better-auth provider.
+        // Bitbucket repos are connected via manual token entry in Settings.
+        // The webhook handler + git-provider abstraction handle the rest.
     },
 });

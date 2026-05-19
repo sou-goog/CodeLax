@@ -1,6 +1,7 @@
 import { inngest } from "../client";
 import { Octokit } from "octokit";
 import prisma from "@/lib/db";
+import { createGitProvider } from "@/module/ai/lib/git-provider";
 import { retrieveContext } from "@/module/ai/lib/rag";
 import { prepareDiffForAgents, getChangedFilenames, calculateComplexityScore, hashDiff, annotateDiffWithLineNumbers, scaledTopK } from "@/module/ai/lib/diff-parser";
 import { runPlanner } from "@/module/ai/agents/planner";
@@ -44,7 +45,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
   { event: "pr.review.requested" },
 
   async ({ event, step }) => {
-    const { owner, repo, prNumber, userId, action, before, after } = event.data;
+    const { owner, repo, prNumber, userId, action, before, after, provider: eventProvider } = event.data;
     const startTime = Date.now();
 
     // Helper to update progress step
@@ -76,47 +77,51 @@ export const generateReviewMultiAgent = inngest.createFunction(
       });
     });
 
-    // Step 1: Fetch PR data + repo config + get GitHub token
+    // Determine which git provider to use
+    const gitProviderName = (eventProvider as string) ?? "github";
+    const providerId = gitProviderName === "gitlab" ? "gitlab" : gitProviderName === "bitbucket" ? "bitbucket" : "github";
+
+    // Step 1: Fetch PR data + repo config + get access token
     const { diff, title, description, token, config, isIncremental } = await step.run("fetch-pr-data", async () => {
       const account = await prisma.account.findFirst({
-        where: { userId, providerId: "github" }
+        where: { userId, providerId }
       });
 
-      if (!account?.accessToken) throw new Error("No GitHub access token found");
+      if (!account?.accessToken) throw new Error(`No ${providerId} access token found`);
 
-      const octokit = new Octokit({ auth: account.accessToken });
-
-      const [{ data: pr }, repoConfig] = await Promise.all([
-        octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
-        fetchRepoConfig(octokit, owner, repo),
-      ]);
+      const gitProvider = createGitProvider(providerId, account.accessToken);
 
       let diffText: string;
+      let prTitle: string;
+      let prDescription: string;
       let incremental = false;
 
       // Incremental review: only get diff between before/after commits on push
       if (action === "synchronize" && before && after) {
-        const { data: compareData } = await octokit.rest.repos.compareCommits({
-          owner,
-          repo,
-          base: before as string,
-          head: after as string,
-          mediaType: { format: "diff" },
-        });
-        diffText = compareData as unknown as string;
+        diffText = await gitProvider.fetchIncrementalDiff(owner, repo, before as string, after as string);
+        // Still need full PR metadata
+        const prData = await gitProvider.fetchPR(owner, repo, prNumber);
+        prTitle = prData.title;
+        prDescription = prData.description;
         incremental = true;
       } else {
-        const { data: diffData } = await octokit.rest.pulls.get({
-          owner, repo, pull_number: prNumber,
-          mediaType: { format: "diff" }
-        });
-        diffText = diffData as unknown as string;
+        const prData = await gitProvider.fetchPR(owner, repo, prNumber);
+        diffText = prData.diff;
+        prTitle = prData.title;
+        prDescription = prData.description;
+      }
+
+      // Fetch repo config (only available for GitHub currently)
+      let repoConfig: CodeLaxConfig = {};
+      if (providerId === "github") {
+        const octokit = new Octokit({ auth: account.accessToken });
+        repoConfig = await fetchRepoConfig(octokit, owner, repo);
       }
 
       return {
         diff: diffText,
-        title: pr.title,
-        description: pr.body ?? "",
+        title: prTitle,
+        description: prDescription,
         token: account.accessToken,
         config: repoConfig,
         isIncremental: incremental
@@ -317,19 +322,14 @@ export const generateReviewMultiAgent = inngest.createFunction(
     // Step 8: Post review with inline comments, auto-labels, check run, save to DB
     const durationMs = Date.now() - startTime;
     await step.run("post-and-save", async () => {
-      const octokit = new Octokit({ auth: token });
+      const gitProvider = createGitProvider(providerId, token);
 
       // Get the latest commit SHA for inline comments
-      const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
-      const commitSha = pr.head.sha;
+      const prData = await gitProvider.fetchPR(owner, repo, prNumber);
+      const commitSha = prData.headSha;
 
       // Post the summary review as a PR comment
-      await octokit.rest.issues.createComment({
-        owner,
-        repo,
-        issue_number: prNumber,
-        body: finalReview
-      });
+      await gitProvider.postComment(owner, repo, prNumber, finalReview);
 
       // Post inline comments based on config
       const MAX_INLINE_COMMENTS = config.maxInlineComments ?? 5;
@@ -340,29 +340,19 @@ export const generateReviewMultiAgent = inngest.createFunction(
         .filter((f) => f.line && f.file && allowedSeverities.includes(f.severity))
         .slice(0, MAX_INLINE_COMMENTS);
 
-      for (const finding of inlineFindings) {
-        try {
-          const body = [
-            `**${finding.severity.toUpperCase()}** — ${finding.title}`,
-            "",
-            finding.description,
-            "",
-            finding.suggestion ? `\`\`\`suggestion\n${finding.suggestion}\n\`\`\`` : "",
-          ].filter(Boolean).join("\n");
+      const inlineComments = inlineFindings.map((finding) => ({
+        file: finding.file,
+        line: finding.line!,
+        body: [
+          `**${finding.severity.toUpperCase()}** — ${finding.title}`,
+          "",
+          finding.description,
+          "",
+          finding.suggestion ? `\`\`\`suggestion\n${finding.suggestion}\n\`\`\`` : "",
+        ].filter(Boolean).join("\n"),
+      }));
 
-          await octokit.rest.pulls.createReviewComment({
-            owner,
-            repo,
-            pull_number: prNumber,
-            commit_id: commitSha,
-            path: finding.file,
-            line: finding.line!,
-            body,
-          });
-        } catch (e) {
-          console.error(`Failed to post inline comment on ${finding.file}:${finding.line}`, e);
-        }
-      }
+      await gitProvider.postInlineComments(owner, repo, prNumber, commitSha, inlineComments);
 
       // Auto-label PR based on findings
       const labels: string[] = [];
@@ -376,48 +366,22 @@ export const generateReviewMultiAgent = inngest.createFunction(
 
       if (labels.length > 0) {
         try {
-          // Ensure labels exist
-          for (const label of labels) {
-            try {
-              await octokit.rest.issues.getLabel({ owner, repo, name: label });
-            } catch {
-              const colorMap: Record<string, string> = {
-                "critical-issues": "d73a4a",
-                "needs-fix": "e4a221",
-                "security-concern": "b60205",
-                "ai-approved": "0e8a16",
-              };
-              await octokit.rest.issues.createLabel({
-                owner, repo, name: label,
-                color: colorMap[label] || "ededed",
-                description: `Auto-applied by CodeLax AI review`,
-              });
-            }
-          }
-          await octokit.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels });
+          await gitProvider.addLabels(owner, repo, prNumber, labels);
         } catch (e) {
           console.error("Failed to add labels:", e);
         }
       }
 
-      // Complete the GitHub Check Run
-      if (checkRunId) {
+      // Complete the Check Run (GitHub only)
+      if (checkRunId && gitProvider.updateCheckRun) {
         try {
           const conclusion = hasCritical ? "failure" : hasHigh ? "neutral" : "success";
           const findingsCount = criticReport.verifiedFindings.length;
-          await octokit.rest.checks.update({
-            owner,
-            repo,
-            check_run_id: checkRunId,
-            status: "completed",
-            conclusion,
-            completed_at: new Date().toISOString(),
-            output: {
-              title: findingsCount === 0
-                ? "All clear — no issues found"
-                : `${findingsCount} finding${findingsCount > 1 ? "s" : ""} (${criticReport.overallRisk} risk)`,
-              summary: `**Risk Level:** ${criticReport.overallRisk.toUpperCase()}\n**Findings:** ${findingsCount}\n**Duration:** ${Math.round(durationMs / 1000)}s\n**Complexity:** ${complexity.score}/100 (${complexity.level})`,
-            },
+          await gitProvider.updateCheckRun(owner, repo, checkRunId, "completed", conclusion, {
+            title: findingsCount === 0
+              ? "All clear — no issues found"
+              : `${findingsCount} finding${findingsCount > 1 ? "s" : ""} (${criticReport.overallRisk} risk)`,
+            summary: `**Risk Level:** ${criticReport.overallRisk.toUpperCase()}\n**Findings:** ${findingsCount}\n**Duration:** ${Math.round(durationMs / 1000)}s\n**Complexity:** ${complexity.score}/100 (${complexity.level})`,
           });
         } catch (e) {
           console.error("Failed to update check run:", e);
