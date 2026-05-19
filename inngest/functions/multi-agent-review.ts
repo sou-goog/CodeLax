@@ -440,6 +440,8 @@ export const generateReviewMultiAgent = inngest.createFunction(
                 severity: f.severity,
                 confidence: f.confidence,
                 file: f.file,
+                startLine: f.line ?? null,
+                endLine: f.line ?? null,
                 title: f.title,
                 description: f.description,
                 suggestion: f.suggestion
@@ -470,6 +472,8 @@ export const generateReviewMultiAgent = inngest.createFunction(
                   severity: f.severity,
                   confidence: f.confidence,
                   file: f.file,
+                  startLine: f.line ?? null,
+                  endLine: f.line ?? null,
                   title: f.title,
                   description: f.description,
                   suggestion: f.suggestion

@@ -156,6 +156,9 @@ class SidebarProvider {
     }
     buildReviewsScreen() {
         if (this._reviews.length === 0) {
+            const repoInfo = this._repoName
+                ? `<span class="repo-detected">Detected: <code>${this.escape(this._repoName)}</code></span>`
+                : `<span class="repo-detected warn">⚠ Could not detect repo — open a connected repo folder</span>`;
             return this.shell(`
         <div class="center-screen">
           <div class="empty-icon">
@@ -165,8 +168,10 @@ class SidebarProvider {
             </svg>
           </div>
           <h3>No reviews yet</h3>
+          ${repoInfo}
           <p class="body-text">Open a PR on a connected repo to trigger an AI review.</p>
           <button class="btn btn-ghost" onclick="vscode.postMessage({command:'openBrowser'})">Open Dashboard ↗</button>
+          <button class="btn btn-ghost small" onclick="vscode.postMessage({command:'refresh'})">↻ Refresh</button>
         </div>
       `);
         }
@@ -331,6 +336,9 @@ class SidebarProvider {
   }
   .btn-ghost:hover { color: var(--text); border-color: var(--accent); }
   .btn.small { padding: 5px 12px; font-size: 11px; }
+  .repo-detected { font-size: 10px; color: var(--muted); background: rgba(124,58,237,0.1); border: 1px solid rgba(124,58,237,0.2); padding: 3px 10px; border-radius: 20px; }
+  .repo-detected code { color: var(--accent-light); font-family: monospace; }
+  .repo-detected.warn { background: rgba(234,179,8,0.08); border-color: rgba(234,179,8,0.2); color: #facc15; }
 
   /* Reviews screen */
   .reviews-screen { padding: 10px 10px 0; display: flex; flex-direction: column; gap: 8px; }

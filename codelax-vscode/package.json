@@ -4,7 +4,6 @@
   "description": "Multi-agent AI code review directly in VS Code. See findings, inline diagnostics, and trigger reviews without leaving your editor.",
   "version": "1.0.0",
   "publisher": "codelax",
-  "icon": "media/icon.png",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other", "Linters"],
   "keywords": ["AI", "code review", "GitHub", "pull request", "security"],
