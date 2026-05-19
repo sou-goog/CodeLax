@@ -29,11 +29,12 @@ model account {
 
 model repository {
   id          String            @id
-  githubId    BigInt            @unique
+  githubId    BigInt?           @unique
   name        String
   owner       String
   fullName    String
   url         String
+  provider    String            @default("github") // "github" | "gitlab" | "bitbucket"
   userId      String
   teamId      String?
   createdAt   DateTime          @default(now())
