@@ -1,13 +1,15 @@
 "use client"
 import { signIn } from "@/lib/auth-client"
-import { Github as GithubIcon, ShieldCheck, Zap, BrainCircuit, Terminal } from "lucide-react"
+import { Github as GithubIcon, ShieldCheck, Zap, BrainCircuit, Terminal, GitlabIcon } from "lucide-react"
 import { useState } from 'react'
 
 const LoginUI = () => {
     const [isLoading, setIsLoading] = useState(false)
+    const [loadingProvider, setLoadingProvider] = useState<string | null>(null)
 
     const handleGithubLogin = async () => {
         setIsLoading(true)
+        setLoadingProvider("github")
         try {
             await signIn.social({
                 provider: "github"
@@ -15,6 +17,21 @@ const LoginUI = () => {
         } catch (error) {
             console.error("Login error:", error)
             setIsLoading(false)
+            setLoadingProvider(null)
+        }
+    }
+
+    const handleGitlabLogin = async () => {
+        setIsLoading(true)
+        setLoadingProvider("gitlab")
+        try {
+            await signIn.social({
+                provider: "gitlab"
+            })
+        } catch (error) {
+            console.error("Login error:", error)
+            setIsLoading(false)
+            setLoadingProvider(null)
         }
     }
 
@@ -60,17 +77,34 @@ const LoginUI = () => {
                 <div className="w-full max-w-sm">
                     <div className="mb-10">
                         <h2 className="text-3xl font-semibold text-foreground mb-2">Welcome Back</h2>
-                        <p className="text-muted-foreground">Sign in with your GitHub account to get started.</p>
+                        <p className="text-muted-foreground">Sign in with your account to get started.</p>
                     </div>
 
-                    <button
-                        onClick={handleGithubLogin}
-                        disabled={isLoading}
-                        className="w-full py-3 px-4 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-3 shadow-lg shadow-violet-600/20"
-                    >
-                        <GithubIcon size={20} />
-                        {isLoading ? "Signing in..." : "Continue with GitHub"}
-                    </button>
+                    <div className="space-y-3">
+                        <button
+                            onClick={handleGithubLogin}
+                            disabled={isLoading}
+                            className="w-full py-3 px-4 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-3 shadow-lg shadow-violet-600/20"
+                        >
+                            <GithubIcon size={20} />
+                            {loadingProvider === "github" ? "Signing in..." : "Continue with GitHub"}
+                        </button>
+
+                        <div className="flex items-center gap-3 my-2">
+                            <div className="flex-1 h-px bg-border" />
+                            <span className="text-xs text-muted-foreground">or</span>
+                            <div className="flex-1 h-px bg-border" />
+                        </div>
+
+                        <button
+                            onClick={handleGitlabLogin}
+                            disabled={isLoading}
+                            className="w-full py-3 px-4 bg-[#fc6d26] text-white rounded-lg font-semibold hover:bg-[#e65a1a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-3 shadow-lg shadow-orange-500/20"
+                        >
+                            <GitlabIcon size={20} />
+                            {loadingProvider === "gitlab" ? "Signing in..." : "Continue with GitLab"}
+                        </button>
+                    </div>
 
                     <p className="mt-6 text-center text-xs text-muted-foreground">
                         By continuing, you agree to CodeLax&apos;s Terms of Service and Privacy Policy.
