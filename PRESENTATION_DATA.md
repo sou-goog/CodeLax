@@ -528,136 +528,689 @@ This section provides a thorough, end-to-end walkthrough of every component in t
 
 ---
 
-### 17.1 How a PR Review Works (End-to-End)
+### 17.1 How a PR Review Works (End-to-End) — Complete Data Flow
 
-When a developer opens a pull request, the following sequence executes automatically:
+This section traces every piece of data from the moment a developer pushes code to the moment findings appear on their PR. It shows the exact inputs/outputs, prompt structures, and decision logic at each stage.
 
-**Phase 1: Event Ingestion**
-1. The git provider (GitHub/GitLab/Bitbucket) fires a webhook to CodeLax's API endpoint.
-2. For GitHub, the server verifies the request using HMAC-SHA256 signature (`X-Hub-Signature-256` header) against the stored webhook secret. For GitLab, it checks the `X-Gitlab-Token` header. For Bitbucket, it validates the payload structure.
-3. The handler extracts: repository owner, repo name, PR number, action type (opened/synchronize), provider type, and installation token.
-4. It then fires an Inngest event: `pr.review.requested` with all this metadata. This decouples the webhook handler (fast, returns 200 immediately) from the heavy AI pipeline (runs async).
+---
 
-**Phase 2: Pipeline Orchestration (Inngest)**
-The `generateReviewMultiAgent` function runs as a series of durable steps. Each step is retried independently if it fails, and the entire pipeline has concurrency control (max 3 simultaneous reviews).
+#### PHASE 1: Webhook Reception & Event Dispatch
 
-**Step 1 — Create Pending Review:**
-A database record is created with `status: "pending"`, `startedAt: now()`. This allows the dashboard to show "Pending" badges immediately.
+**Trigger:** A developer opens a PR or pushes commits to an existing PR.
 
-**Step 2 — Fetch PR Data:**
-Using the `GitProvider` abstraction (`createGitProvider()`), the pipeline fetches:
-- PR title and description
-- The raw unified diff (git diff format)
-- Head SHA (for posting check runs and inline comments)
-- Base/head branch names
-It also fetches `.codelax.yaml` config from the repo if it exists.
+**What happens in the webhook handler (`app/(auth)/api/webhooks/github/route.ts`):**
 
-**Step 3 — Dedup Check:**
-The diff is hashed using a fast 32-bit hash (`hashDiff()`). If a completed review with the same `diffHash` already exists for this PR, the pipeline skips and sets `status: "skipped"`. This prevents re-reviewing identical pushes.
+```
+1. GitHub sends HTTP POST to https://code-lax.vercel.app/api/webhooks/github
+   Headers:
+     - X-Hub-Signature-256: sha256=<HMAC digest>
+     - X-GitHub-Event: "pull_request"
+   Body: { action: "opened"|"synchronize"|"reopened", pull_request: {...}, repository: {...} }
 
-**Step 4 — Check Run (GitHub only):**
-A GitHub Check Run is created with `status: "in_progress"` using the Checks API. This shows a yellow spinner on the PR. The check run ID is saved for later completion.
+2. Server reads raw body as text (needed for signature verification)
 
-**Step 5 — Preparation (The Intelligence Layer):**
-This is where the diff gets analyzed and enriched:
+3. HMAC-SHA256 Verification:
+   digest = HMAC_SHA256(GITHUB_WEBHOOK_SECRET, rawBody)
+   expected = "sha256=" + hex(digest)
+   Compare using crypto.timingSafeEqual(expected, header_signature)
+   → If mismatch → return 401
+   → This prevents anyone from forging webhook calls
 
-- **Diff Parsing & Filtering** (`diff-parser.ts`):
-  - The raw diff is split by file using `parseDiffByFile()`.
-  - Files matching `SKIP_PATTERNS` (lockfiles, images, build artifacts) are removed.
-  - Remaining files are sorted: high-priority source code first, low-priority config last.
-  - A character budget (30,000 chars) is applied — if the diff is too large, low-priority files are dropped and large files are truncated.
-  - The diff is annotated with real line numbers using `annotateDiffWithLineNumbers()`: each line gets a prefix like `L42+` (new file line 42, added) or `L38-` (old file line 38, deleted). This dramatically reduces agent hallucination of line numbers.
+4. Extract data from payload:
+   owner = body.repository.owner.login     (e.g., "sou-goog")
+   repo  = body.repository.name            (e.g., "CodeLax")
+   prNumber = body.pull_request.number      (e.g., 15)
+   action = body.action                     (e.g., "opened")
+   before = body.before                     (previous HEAD SHA, for incremental)
+   after  = body.after                      (new HEAD SHA, for incremental)
 
-- **Complexity Scoring** (`calculateComplexityScore()`):
-  - Computes a 0-100 score based on: file count (0-30pts), total changed lines (0-35pts), hotspot files (0-25pts), refactor signals (+5), wide PR bonus (+5).
-  - Hotspot files = source code files (.ts, .py, .go, etc.) with >20 line changes.
-  - Output: score, level (trivial/small/moderate/complex/massive), breakdown.
+5. Database lookup:
+   SELECT * FROM repository WHERE owner='sou-goog' AND name='CodeLax'
+   → Gets repository.userId (the user who connected this repo)
+   → If not found → return 200 "Repository not connected" (silent skip)
 
-- **RAG Context Retrieval** (`rag.ts`):
-  - The diff text is embedded using Google's `gemini-embedding-2` model.
-  - This embedding is used to query Pinecone for the top-K most similar code chunks from the indexed codebase.
-  - `scaledTopK()` dynamically adjusts K: small diffs get 3 chunks, large diffs get up to 10.
-  - Results are deduplicated by file path (keeping highest-scoring chunk per file).
-  - These context chunks are prepended to the agent prompts so they understand the broader codebase beyond just the diff.
+6. Fire Inngest event:
+   inngest.send({
+     name: "pr.review.requested",
+     data: { owner, repo, prNumber, userId, action, before, after }
+   })
+   → Returns 200 immediately (decoupled — review runs async)
+```
 
-- **Language Detection:**
-  - The Planner examines file extensions in the diff to detect languages (TypeScript, Python, Go, etc.).
-  - This list is passed to specialists for language-specific analysis.
+**Why this design:** The webhook handler must respond within seconds or GitHub will retry. All heavy processing happens asynchronously in Inngest, which provides retries, concurrency control, and step-level durability.
 
-- **Planner Agent** (`planner.ts`):
-  - Uses the "light" model tier (fast, cheap).
-  - Reads the diff + PR title + description.
-  - Outputs JSON: `{ agentsToActivate, languages, planNotes, agentFocusHints }`.
-  - Decides which specialists to activate (e.g., skip security agent for a CSS-only PR).
-  - Provides focus hints per agent (e.g., "Focus on SQL injection in the new query builder").
+---
 
-**Step 6 — Specialist Agents (Parallel Execution):**
-All activated specialists run in parallel via `Promise.allSettled()`. Each specialist:
+#### PHASE 2: Data Fetching — How the Repository Data is Obtained
 
-1. Receives: annotated diff, RAG context, PR title, custom instructions, focus hints, DO-NOT rules, and detected languages.
-2. Uses the "standard" model tier.
-3. Has a specific system prompt defining its expertise (security/performance/logic/style).
-4. **Language-Specific Knowledge Injection** (`language-hints.ts`):
-   - For each detected language, the agent receives a block of language-specific patterns. For example, the Security agent reviewing TypeScript code receives:
-     - "Check for `dangerouslySetInnerHTML` — XSS via unsanitized HTML injection"
-     - "Check for `eval()`, `new Function()`, or `vm.runInContext()` — code injection"
-     - "Next.js: Server Actions that don't verify session/auth before mutating data"
-   - 6 languages are covered: TypeScript, JavaScript, Python, Java, Go, Rust.
-   - Each has patterns for security, performance, and logic domains.
-5. **DO-NOT Rules:**
-   - Rules distilled from past false positives (stored as `RejectionPattern` in the database).
-   - Example: "Do not flag optional chaining as a bug if used intentionally for fallback values."
-   - These are injected into the system prompt to prevent known false positives from recurring.
-6. Outputs a `SpecialistReport`: `{ agentName, findings[], summary, analysisNotes }`.
-7. Each finding has: `title, description, severity, confidence, file, line, codeSnippet, suggestion`.
+**Step: `fetch-pr-data` in `multi-agent-review.ts`**
 
-**Step 7 — Deterministic Pre-Filter** (`finding-verifier.ts`):
-Before the LLM-powered Critic even sees the findings, a mechanical (zero-cost) verification runs:
+This step acquires ALL the raw material needed for the review:
 
-- **Check 1: File Exists in Diff** — Normalizes the file path the agent referenced (strips `a/`, `b/` prefixes, normalizes slashes) and checks if it matches any file in the parsed diff. Also tries suffix matching (agent says `auth.ts`, diff has `src/lib/auth.ts`).
-- **Check 2: Line Number in Changed Hunk** — Parses the `@@ -oldStart,count +newStart,count @@` headers from the diff. Checks if the referenced line falls within any hunk, with a ±5 line margin for flexibility. Checks both new-file and old-file line ranges.
-- **Check 3: Code Snippet Present** — Normalizes the finding's code snippet (lowercase, collapse whitespace, strip punctuation) and checks if it appears in the file's diff content. For multi-line snippets, requires ≥50% of lines to match.
+```
+Input:  { owner, repo, prNumber, userId, action, before, after }
+Output: { diff, title, description, token, config, isIncremental }
+```
 
-Scoring: If a finding's file isn't in the diff at all → automatic reject. Otherwise, a finding is rejected if it fails 2+ checks. This eliminates hallucinated findings at zero compute cost.
+**How the access token is obtained:**
+```sql
+SELECT accessToken FROM account WHERE userId = '<userId>' AND providerId = 'github'
+```
+This token was stored during OAuth login (GitHub grants it when the user authorizes CodeLax). It has permissions for: repo read, pull request comments, checks:write, labels.
 
-**Step 8 — Critic Agent** (`critic.ts`):
-Uses the "strong" model tier.
-- Receives: filtered specialist reports + the full diff.
-- Cross-validates findings against the diff.
-- Deduplicates overlapping findings from different specialists.
-- Calibrates severity (downgrades over-hyped findings, upgrades missed critical ones).
-- Assigns a confidence score (0.0–1.0) to each verified finding.
-- Computes `effectiveScore = severity_weight × confidence` and filters below threshold.
-- Assesses overall risk level for the PR.
-- Distills rejection patterns from false positives to feed back into future reviews.
-- Outputs: `CriticReport` with `verifiedFindings`, `rejectedFindings`, `overallRisk`, `rejectionPatterns`.
+**How the diff is fetched:**
+For GitHub, the `GitHubProvider.fetchPR()` method calls:
+```
+GET /repos/{owner}/{repo}/pulls/{prNumber}
+  → returns: title, description, headSha, baseBranch, headBranch
+GET /repos/{owner}/{repo}/pulls/{prNumber}  (with Accept: application/vnd.github.diff)
+  → returns: the full unified diff as plain text
+```
 
-**Step 9 — Synthesizer Agent** (`synthesizer.ts`):
-Uses the "strong" model tier.
-- Takes the Critic's verified findings and produces the final markdown review.
-- Includes: summary header, complexity badge, severity table, detailed findings with code suggestions, a Mermaid architecture diagram, "What's Done Well" section, and action items.
-- `sanitizeMermaid()` post-processes the diagram to fix common LLM syntax errors (unterminated strings, invalid characters).
+For **incremental reviews** (action = "synchronize", i.e., new commits pushed to existing PR):
+```
+GET /repos/{owner}/{repo}/compare/{before}...{after}
+  → returns: only the diff between the old HEAD and new HEAD
+  → This means the review only covers the NEW commits, not the entire PR
+```
 
-**Step 10 — Evaluator Agent** (`evaluator.ts`):
-Uses the "strong" model tier (at least as good as the reviewer).
-- Receives: the synthesized review, the original diff, and the critic report.
-- Scores on 4 dimensions (each 0-10):
-  - **Traceability** (weight 3): Are findings backed by real file/line references?
-  - **Accuracy** (weight 3): Are findings factually correct?
-  - **Suggestion Quality** (weight 2): Are code suggestions syntactically valid?
-  - **Completeness** (weight 2): Were obvious issues covered?
-- Overall score = weighted average, scaled to 0-100.
-- The server recalculates the score from dimension scores to prevent the LLM from gaming it.
-- If score < 60: sets `shouldRegenerate = true` with `regenerationHints` explaining what to fix.
-- If regeneration is triggered, the Synthesizer re-runs with the evaluator's feedback, but only once (no infinite loops).
+**The raw diff looks like this:**
+```diff
+diff --git a/src/api/users.ts b/src/api/users.ts
+index 3a4e8f1..9c2d7b3 100644
+--- a/src/api/users.ts
++++ b/src/api/users.ts
+@@ -10,6 +10,12 @@ export async function getUsers(req: Request) {
+   const users = await db.query("SELECT * FROM users");
++  // Bug: N+1 query pattern
++  for (const user of users) {
++    user.orders = await db.query(
++      "SELECT * FROM orders WHERE user_id = '" + user.id + "'"
++    );
++  }
+   return res.json(users);
+```
 
-**Phase 3: Output Delivery**
-- **PR Comment:** The full markdown review is posted as a comment on the PR/MR.
-- **Inline Comments:** Individual findings are posted as inline review comments at the specific file/line, with `suggestion` format for one-click apply.
-- **Auto-Labels:** Based on findings, labels are applied: `critical-issues`, `needs-fix`, `security-concern`, or `ai-approved` (if no issues found).
-- **Check Run Completion:** The GitHub Check Run is updated to pass/fail/neutral based on overall risk.
-- **Slack Notification:** If any critical/high findings exist and Slack is configured, an alert is sent.
-- **Database:** The review record is updated with `status: "completed"`, the full review text, `completedAt`, `durationMs`, and all findings are stored as `review_finding` records.
+**How `.codelax.yaml` config is fetched:**
+```
+GET /repos/{owner}/{repo}/contents/.codelax.yaml (base64-encoded)
+→ If 404: use defaults (all agents, no ignore, minSeverity="medium", maxInlineComments=5)
+→ If found: parse YAML → { agents, ignore, minSeverity, maxInlineComments, instructions }
+```
+
+---
+
+#### PHASE 3: Deduplication — Avoiding Redundant Reviews
+
+```
+diffDigest = hashDiff(diff)  // fast 32-bit hash of the entire diff string
+
+SELECT id FROM review WHERE diffHash = diffDigest AND status = 'completed' LIMIT 1
+→ If found: mark this review as "skipped", return early
+→ This prevents re-reviewing when a developer force-pushes without changes
+```
+
+---
+
+#### PHASE 4: Data Preparation — Transforming Raw Diff for AI Consumption
+
+This is the most critical data transformation stage. The raw diff is messy — it contains lockfiles, binary diffs, huge auto-generated files. AI agents have limited context windows (typically 128K tokens). The preparation step transforms raw data into clean, prioritized, annotated input.
+
+**4.1 Diff Parsing & Filtering (`prepareDiffForAgents`):**
+```
+Input:  Raw diff string (could be 500KB for a large PR)
+Output: Filtered diff (max 25,000 chars) + filesSummary
+
+Process:
+1. Split on "diff --git" boundaries → per-file chunks
+2. For each file, check against SKIP_PATTERNS:
+   - package-lock.json, yarn.lock → SKIP (noise)
+   - *.min.js, *.min.css → SKIP (generated)
+   - .next/, node_modules/, dist/ → SKIP (build artifacts)
+   - *.png, *.jpg, *.pdf → SKIP (binary)
+   - prisma/migrations/ → SKIP (auto-generated)
+3. Check against .codelax.yaml ignore patterns:
+   - User-defined globs like "**/*.test.ts", "dist/**" → SKIP
+4. Sort remaining files:
+   - High priority: .ts, .tsx, .py, .go, .rs, .java (source code) — sorted by change count
+   - Low priority: tsconfig.json, .eslintrc, tailwind.config (config files)
+5. Apply 25,000 char budget:
+   - Include files in priority order until budget exhausted
+   - If a file exceeds remaining budget but >2000 chars remain, include truncated version
+   - Track which files were excluded
+
+Output example:
+  "Files changed: 8 total, 5 included in review
+    ✔ src/api/users.ts (+12/-3)
+    ✔ src/auth/login.ts (+45/-2)
+    ✔ src/db/queries.ts (+8/-1)
+    ✔ src/utils/validate.ts (+20/-0)
+    ✔ src/types/index.ts (+5/-0)
+    ✖ package-lock.json (excluded — budget exceeded)
+    ✖ tailwind.config.ts (excluded — budget exceeded)
+    ✖ README.md (excluded — budget exceeded)"
+```
+
+**4.2 Line Number Annotation (`annotateDiffWithLineNumbers`):**
+
+This is a key innovation that prevents AI hallucination of line numbers:
+```
+Input:
+  @@ -10,6 +10,12 @@ export async function getUsers(req: Request) {
+     const users = await db.query("SELECT * FROM users");
+  +  for (const user of users) {
+  +    user.orders = await db.query(
+
+Output (annotated):
+  @@ -10,6 +10,12 @@ export async function getUsers(req: Request) {
+  L10  const users = await db.query("SELECT * FROM users");
+  L11+ for (const user of users) {
+  L12+   user.orders = await db.query(
+
+How it works:
+- Parse @@ header: "-10,6 +10,12" → old starts at line 10, new starts at line 10
+- Track line counters as we iterate:
+  - "+" line → prefix with "L{newLine}+", increment newLine
+  - "-" line → prefix with "L{oldLine}-", increment oldLine
+  - Context line → prefix with "L{newLine} ", increment both
+```
+
+Without this annotation, agents frequently say "line 3" when they mean "line 42" (they count from the start of the hunk, not the file). With annotation, agents see the actual line numbers in the code.
+
+**4.3 PR Complexity Scoring:**
+```
+score = min(100, fileCount×5 + totalChanges×0.05 + hotspotFiles×10 + refactorBonus + widePRBonus)
+
+Example: 5 files changed, 87 additions + 12 deletions, 3 hotspot files
+  = 5×5 + 99×0.05 + 3×10 + 0 + 0
+  = 25 + 5 + 30 + 0 + 0 = 60/100 ("complex")
+```
+
+**4.4 RAG Context Retrieval:**
+```
+1. Build query: "{PR title}\n{description}\nChanged files: src/api/users.ts, src/auth/login.ts, ..."
+2. Embed query → 768-dim vector using gemini-embedding-2
+3. Query Pinecone:
+   {
+     vector: [0.12, -0.34, 0.56, ...],  // 768 dimensions
+     filter: { repoId: "sou-goog/CodeLax" },
+     topK: scaledTopK(diffLength),       // 3-10 based on diff size
+     includeMetadata: true
+   }
+4. Get back matches with scores (0.0-1.0 cosine similarity):
+   [
+     { score: 0.89, metadata: { path: "src/db/connection.ts", content: "..." } },
+     { score: 0.82, metadata: { path: "src/middleware/auth.ts", content: "..." } },
+     ...
+   ]
+5. Deduplicate by file path (keep highest-scoring chunk per file)
+6. Return content strings → these are the "context" chunks given to agents
+```
+
+---
+
+#### PHASE 5: The Planner — Deciding Which Agents to Activate
+
+**What data the Planner receives:**
+```
+System prompt: "You are a code review planning agent..."
+  (includes available agents list, activation guidelines, JSON schema)
+
+User prompt:
+  "PR Title: Fix user authentication and add pagination
+   PR Description: Added JWT validation, fixed SQL queries...
+   Code Diff (first 6000 chars):
+   ```diff
+   <first 6000 chars of the filtered diff>
+   ```
+   Decide which agents to activate..."
+```
+
+**What the Planner outputs:**
+```json
+{
+  "agentsToActivate": ["security", "performance", "logic"],
+  "languages": ["typescript"],
+  "planNotes": "Security needed for auth changes and SQL queries. Performance for pagination logic. Logic for conditional edge cases. Style skipped — changes are focused on logic, not refactoring.",
+  "agentFocusHints": {
+    "security": "Focus on src/auth/login.ts L15-30 — raw SQL query with string interpolation. Also check JWT secret handling.",
+    "performance": "Check src/api/users.ts L11-16 — N+1 query pattern in a loop. Also verify pagination doesn't load all records.",
+    "logic": "The null check on line 20 of src/auth/login.ts may not handle the case where user is undefined after query."
+  }
+}
+```
+
+**Decision logic:**
+- The Planner is told: "Always include logic (catches broadest bugs), include security if auth/DB/user-input code is present, include performance if DB/loops/components are present."
+- It reads the first 6000 chars of diff — enough to identify file types, function names, and patterns.
+- The `agentFocusHints` are the most valuable output: they tell each specialist *exactly where to look* instead of scanning the entire diff blindly.
+- Uses "light" model tier — this task only needs to produce small JSON, not deep analysis.
+
+**Intersection with config:**
+```
+configAgents = config.agents || ["security", "performance", "logic", "style"]  // from .codelax.yaml
+plannerAgents = plan.agentsToActivate                                           // from AI planner
+agentsToRun = plannerAgents.filter(a => configAgents.includes(a))              // intersection
+```
+This means: the Planner decides what's relevant, but the user can override via config (e.g., disable style agent permanently).
+
+---
+
+#### PHASE 6: Specialist Agents — How AI Analyzes the Code
+
+Each specialist agent is an independent AI call with a carefully constructed prompt. They run in parallel.
+
+**The EXACT data each specialist receives:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SYSTEM PROMPT (specialist identity + rules + examples)          │
+│                                                                   │
+│  "You are an elite application security engineer..."             │
+│  + Specialization areas (SQL injection, XSS, IDOR, etc.)        │
+│  + Rules (confidence >= 0.7, reference specific file/line, etc.) │
+│  + DO-NOT rules from past false positives (if any):              │
+│    "- Do not flag parameterized queries as SQL injection"        │
+│    "- Do not flag optional chaining as null reference bugs"      │
+│  + Language-specific patterns:                                    │
+│    "TypeScript Security Patterns to check:                       │
+│     • dangerouslySetInnerHTML → XSS                             │
+│     • eval() / new Function() → code injection                  │
+│     • Next.js Server Actions without auth check"                 │
+│  + 3 JSON examples (critical, medium, no-issues)                 │
+│                                                                   │
+├─────────────────────────────────────────────────────────────────┤
+│  USER PROMPT (actual data to analyze)                            │
+│                                                                   │
+│  "PR Title: Fix user authentication and add pagination           │
+│                                                                   │
+│   Codebase Context (from vector search):                         │
+│   [Related file 1]:                                              │
+│   File: src/db/connection.ts                                     │
+│   export function createPool() { ... parameterized queries ... }  │
+│   ---                                                            │
+│   [Related file 2]:                                              │
+│   File: src/middleware/auth.ts                                   │
+│   export function verifyJWT(token) { ... }                       │
+│                                                                   │
+│   Planner Focus Hint: Focus on src/auth/login.ts L15-30 —       │
+│   raw SQL query with string interpolation.                       │
+│                                                                   │
+│   Code Changes (annotated with real line numbers):               │
+│   ```diff                                                        │
+│   diff --git a/src/auth/login.ts b/src/auth/login.ts            │
+│   @@ -10,6 +10,12 @@                                           │
+│   L10  const { email, password } = req.body;                     │
+│   L11+ const user = await db.query(                              │
+│   L12+   "SELECT * FROM users WHERE email = '" + email + "'"    │
+│   L13+ );                                                        │
+│   ...                                                            │
+│   ```                                                            │
+│                                                                   │
+│   Additional team rules to enforce:                              │
+│   - This PR is primarily written in: typescript."                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**What the specialist outputs:**
+```json
+{
+  "agentName": "security",
+  "findings": [
+    {
+      "severity": "critical",
+      "confidence": 0.95,
+      "file": "src/auth/login.ts",
+      "line": 12,
+      "title": "SQL Injection via unsanitized user input",
+      "description": "User-supplied 'email' parameter is concatenated directly into SQL query string without parameterization. An attacker can inject arbitrary SQL via payloads like ' OR 1=1 --",
+      "suggestion": "const user = await db.query('SELECT * FROM users WHERE email = $1', [email])",
+      "codeSnippet": "\"SELECT * FROM users WHERE email = '\" + email + \"'\""
+    }
+  ],
+  "summary": "Found 1 critical SQL injection vulnerability in the authentication flow.",
+  "analysisNotes": "High confidence — direct string concatenation with user input in SQL. The RAG context shows the project has a parameterized query helper (createPool) that should be used instead."
+}
+```
+
+**How the AI "judges" the code:**
+1. The AI reads the annotated diff and identifies code patterns that match its specialization.
+2. It cross-references with the RAG context (related files from the codebase) to understand if the code pattern is intentional or a bug.
+3. It uses the focus hint from the Planner to know exactly which lines are most suspicious.
+4. It checks its DO-NOT rules to avoid repeating false positives from past reviews.
+5. It applies language-specific patterns (e.g., TypeScript-specific: check for `dangerouslySetInnerHTML`).
+6. For each finding, it must provide: the exact file, line number (from the L-prefix annotations), a code snippet, and a concrete fix (not pseudo-code).
+
+**All 4 specialists run simultaneously:**
+```typescript
+const results = await Promise.allSettled([
+  runSecurityAgent(diff, context, title, instructions, hints.security, doNotRules.security, languages),
+  runPerformanceAgent(diff, context, title, instructions, hints.performance, doNotRules.performance, languages),
+  runLogicAgent(diff, context, title, instructions, hints.logic, doNotRules.logic, languages),
+  runStyleAgent(diff, context, title, instructions, hints.style, doNotRules.style),
+]);
+```
+If any agent fails (timeout, API error), it returns an empty report — the others continue. The `allSettled` pattern ensures one failure doesn't crash the entire review.
+
+---
+
+#### PHASE 7: Deterministic Pre-Filter — Rejecting Hallucinated Findings
+
+Before any LLM-based verification, a purely mechanical (zero-cost) check runs:
+
+```
+Input: All findings from all specialists + the raw diff
+Output: { verified: findings[], rejected: { finding, reason }[] }
+
+For each finding:
+  1. FILE CHECK:
+     normalize(finding.file) → "src/auth/login.ts"
+     Search in diff file map:
+       Exact match? → found at key "src/auth/login.ts" ✓
+       If not, suffix match: "login.ts" matches "src/auth/login.ts" ✓
+       If neither → REJECT: "FILE_NOT_IN_DIFF"
+
+  2. LINE CHECK (only if file was found):
+     Parse hunks from file's diff: @@ -10,6 +10,12 @@ → hunk covers lines 10-22 (new)
+     Is finding.line (12) within [10-5, 22+5] = [5, 27]? → YES ✓
+     If not → REJECT: "LINE_NOT_IN_HUNK"
+
+  3. SNIPPET CHECK (only if file was found):
+     normalize(finding.codeSnippet) → "select * from users where email ="
+     normalize(file's diff content) → "...select * from users where email = ..."
+     Contains? → YES ✓
+     If not, check line-by-line (≥50% match threshold)
+     If not → REJECT: "SNIPPET_NOT_FOUND"
+
+  Scoring:
+     FILE_NOT_IN_DIFF → AUTOMATIC REJECT (100% hallucination)
+     2+ failures → REJECT
+     0-1 failures → PASS (allow minor imprecision)
+```
+
+**Example of what gets rejected:**
+```
+Finding: "Potential XSS in src/components/Modal.tsx line 5"
+→ FILE CHECK: "src/components/Modal.tsx" NOT in diff → REJECT
+   Reason: Agent hallucinated a file that wasn't even changed in this PR.
+```
+
+---
+
+#### PHASE 8: Critic Agent — How AI Cross-Validates Findings
+
+The Critic is the quality gate. It receives the pre-filtered findings AND the actual diff, and must verify each finding against the code.
+
+**What the Critic receives:**
+```
+System prompt: "You are a senior engineering lead acting as a quality gate..."
+  + Instructions to verify against diff, deduplicate, filter false positives
+  + Severity weight table: critical=4.0, high=2.5, medium=1.5, low=0.8
+  + JSON schema for output
+
+User prompt:
+  "You are reviewing 5 pre-scored findings (3 already rejected by effective-score
+   pre-filter) from 3 agents for PR: 'Fix user authentication'
+
+   ACTUAL CODE DIFF (use this to verify each finding is real):
+   ```diff
+   <first 8000 chars of diff>
+   ```
+
+   FINDINGS TO REVIEW (with effectiveScore):
+   [
+     { severity: "critical", confidence: 0.95, file: "src/auth/login.ts", line: 12,
+       title: "SQL Injection...", _effectiveScore: "3.80" },
+     { severity: "high", confidence: 0.85, file: "src/api/users.ts", line: 15,
+       title: "N+1 query...", _effectiveScore: "2.13" },
+     ...
+   ]"
+```
+
+**Pre-filter (before LLM call):**
+```
+effectiveScore = severityWeight × confidence
+  critical/0.95 → 4.0 × 0.95 = 3.80 → KEEP (above 0.65 threshold)
+  low/0.6       → 0.8 × 0.6  = 0.48 → PRE-REJECT (below 0.65 threshold)
+```
+This pre-filter removes low-value findings before the expensive LLM call.
+
+**What the Critic outputs:**
+```json
+{
+  "verifiedFindings": [
+    { "severity": "critical", "confidence": 0.95, "file": "src/auth/login.ts",
+      "line": 12, "title": "SQL Injection via unsanitized user input",
+      "description": "...", "suggestion": "...", "agentName": "security" }
+  ],
+  "rejectedFindings": [
+    { "finding": { "title": "Potential timing attack in password comparison" },
+      "reason": "The diff shows bcrypt.compare() is used which is already timing-safe. False positive." }
+  ],
+  "overallRisk": "critical"
+}
+```
+
+**Rejection Pattern Distillation (Feedback Loop):**
+After the Critic rejects findings, the reasons are clustered:
+```
+rejectedFindings → group by agentName → count similar reasons → produce rules:
+  [
+    { agentName: "security", rule: "do not flag bcrypt.compare as timing attack", count: 2 },
+    { agentName: "logic", rule: "do not flag optional chaining as null bug", count: 3 }
+  ]
+→ Stored in DB: review.rejectionPatterns = JSON.stringify(patterns)
+→ Next review: loaded and injected into specialist prompts as "DO NOT REPORT" rules
+```
+This creates a **self-improving loop**: each review teaches future reviews what NOT to flag.
+
+---
+
+#### PHASE 9: Synthesizer — Producing the Final Human-Readable Review
+
+**What it receives:**
+- Verified findings from Critic (structured JSON)
+- The full diff (for grounding)
+- PR title, description
+- Files summary (which files were included/excluded)
+
+**What it produces:**
+A complete markdown document with these sections:
+1. **Summary** — 2-3 sentences about the PR
+2. **Risk Assessment** — CRITICAL/HIGH/MEDIUM/LOW with justification
+3. **Findings** — Each finding formatted with:
+   - Severity emoji (🔴🟠🟡🟢)
+   - File:line reference
+   - Description (2-3 sentences about real-world impact)
+   - `suggestion` code block (GitHub renders as one-click "Apply" button)
+4. **Mermaid Diagram** — Flow chart of the code changes
+5. **What's Done Well** — Positive feedback
+6. **Action Items** — Prioritized to-do list
+
+**Post-processing (`sanitizeMermaid`):**
+LLMs frequently produce broken Mermaid syntax. The sanitizer fixes:
+- `|label|>` → `|label|` (most common error)
+- Slashes in node text: `[src/file]` → `[src or file]`
+- Unterminated pipe characters
+
+**Complexity badge prepended:**
+```markdown
+> **Complexity:** 60/100 (complex) | **Files:** 5 | **Changes:** +87/-12 | **Hotspots:** 3
+```
+
+---
+
+#### PHASE 10: Evaluator — Self-Scoring the Review Quality
+
+The Evaluator reads the final review AND the original diff to check if the review is accurate.
+
+**What it checks:**
+```
+For each finding in the review:
+  - Does it reference a real file/line from the diff? (Traceability)
+  - Is the described issue actually present in the code? (Accuracy)
+  - Is the suggested fix syntactically valid code? (Suggestion Quality)
+  - Were any obvious bugs in the diff NOT mentioned? (Completeness)
+```
+
+**The score formula (server-side, not LLM-computed):**
+```
+score = (traceability×3 + accuracy×3 + suggestionQuality×2 + completeness×2) / 10 × 10
+```
+
+**If score < 60 → Regeneration:**
+The Synthesizer is re-run with feedback appended to the prompt:
+```
+"IMPORTANT: The previous review scored 45/100 and had these problems:
+ - Finding #2 references line 45 but the change is on line 52
+ - The SQL injection fix suggestion has a syntax error
+ Missed issues the evaluator found in the diff:
+ - Unchecked null dereference on line 30 of utils.ts
+ Regeneration instructions:
+ - Fix the line number reference in finding #2
+ - Ensure all code suggestions are syntactically valid"
+```
+Maximum 1 retry to prevent infinite loops.
+
+---
+
+#### PHASE 11: Output Delivery — Posting Results Back
+
+**PR Comment:**
+```
+gitProvider.postComment(owner, repo, prNumber, finalReviewMarkdown)
+```
+
+**Inline Comments (per-line):**
+```
+For each verified finding (up to maxInlineComments from config):
+  gitProvider.postInlineComments(owner, repo, prNumber, commitSha, [
+    {
+      file: "src/auth/login.ts",
+      line: 12,
+      body: "**CRITICAL** — SQL Injection via unsanitized user input\n\n..."
+    }
+  ])
+```
+On GitHub, these appear as review comments directly on the affected line.
+
+**Auto-Labels:**
+```
+if (hasCritical) → add "critical-issues" label
+if (hasHigh && !hasCritical) → add "needs-fix" label  
+if (hasSecurity finding) → add "security-concern" label
+if (0 findings) → add "ai-approved" label ✓
+```
+
+**Check Run Update (GitHub):**
+```
+conclusion = hasCritical ? "failure" : hasHigh ? "neutral" : "success"
+octokit.checks.update({
+  check_run_id: checkRunId,
+  status: "completed",
+  conclusion: conclusion,
+  output: {
+    title: "2 findings (critical risk)",
+    summary: "Risk: CRITICAL | Findings: 2 | Duration: 15s | Complexity: 60/100 | Quality: 82/100"
+  }
+})
+→ Shows ❌ or ✓ directly on the PR
+```
+
+**Database Persistence:**
+```sql
+UPDATE review SET
+  status = 'completed',
+  review = '<full markdown>',
+  diffHash = '<hash>',
+  completedAt = NOW(),
+  durationMs = 15234
+WHERE id = '<reviewId>'
+
+INSERT INTO review_finding (reviewId, agentName, severity, confidence, file, startLine, title, description, suggestion)
+VALUES ('<reviewId>', 'security', 'critical', 0.95, 'src/auth/login.ts', 12, 'SQL Injection...', '...', '...')
+```
+
+**Slack Notification (if critical/high):**
+```
+POST https://hooks.slack.com/services/...
+{
+  "text": "🔴 CodeLax found CRITICAL issues in sou-goog/CodeLax PR #15: SQL Injection vulnerability"
+}
+```
+
+---
+
+#### COMPLETE DATA FLOW SUMMARY
+
+```
+GitHub PR Push
+     │
+     ▼
+Webhook Handler ──── Verify HMAC ──── Extract {owner, repo, PR#} ──── DB lookup (userId)
+     │
+     ▼
+Inngest Event: "pr.review.requested"
+     │
+     ▼
+Create DB Record (status: "in_progress")
+     │
+     ▼
+Fetch: PR diff + title + description + .codelax.yaml + access token
+     │
+     ▼
+Dedup Check (hashDiff → DB lookup → skip if duplicate)
+     │
+     ▼
+Create GitHub Check Run (yellow spinner on PR)
+     │
+     ▼
+PREPARE:
+  ├── parseDiffByFile → filter skip patterns → sort by priority → budget 25K chars
+  ├── annotateDiffWithLineNumbers → "L42+ const x = 1"
+  ├── calculateComplexityScore → 60/100 (complex)
+  ├── retrieveContext (RAG) → embed query → Pinecone topK → deduplicate
+  └── runPlanner → decide agents + focus hints + detect languages
+     │
+     ▼
+RUN SPECIALISTS (parallel):
+  ├── Security Agent ← {annotated diff + RAG context + focus hint + DO-NOT rules + TS patterns}
+  ├── Performance Agent ← {same structure, different expertise}
+  └── Logic Agent ← {same structure, different expertise}
+     │
+     ▼
+DETERMINISTIC VERIFIER (no LLM):
+  ├── Check 1: File in diff?
+  ├── Check 2: Line in hunk?
+  └── Check 3: Snippet in content?
+  → Reject hallucinated findings at zero cost
+     │
+     ▼
+CRITIC (LLM - strong tier):
+  ├── effectiveScore pre-filter (< 0.65 → reject)
+  ├── Cross-validate each finding against actual diff
+  ├── Deduplicate overlapping findings
+  ├── Calibrate severity
+  └── Distill rejection patterns → save to DB for next review
+     │
+     ▼
+SYNTHESIZER (LLM - strong tier):
+  → Produce markdown review with findings, suggestions, diagram
+     │
+     ▼
+EVALUATOR (LLM - strong tier):
+  → Score review quality (0-100)
+  → If < 60: regenerate with feedback (max 1 retry)
+     │
+     ▼
+POST RESULTS:
+  ├── PR comment (full review)
+  ├── Inline comments (per-line, up to maxInlineComments)
+  ├── Auto-labels (critical-issues / needs-fix / security-concern / ai-approved)
+  ├── Check Run completion (pass/fail/neutral)
+  ├── Slack notification (if critical/high)
+  └── DB update (status: "completed", durationMs, all findings)
+```
 
 ---
 
