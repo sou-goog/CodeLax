@@ -120,26 +120,35 @@
 | **Style Agent** | Specialist | Code style, naming conventions, dead code, documentation gaps |
 | **Critic** | Verifier | Cross-validates all specialist findings, removes false positives, assigns confidence scores |
 | **Synthesizer** | Writer | Compiles final review with markdown formatting, mermaid diagrams, severity badges |
+| **Evaluator** | Quality Gate | Scores the final review (0-100) on traceability, accuracy, suggestions, completeness; triggers regeneration if below threshold |
 
 ### Pipeline Flow Diagram
 ```
 PR/MR Opened or Pushed
        │
        ▼
-┌─── Planner ───┐
+┌─── Planner ───┐         (Light model tier)
 │ Reads diff,    │
 │ assigns tasks  │
 └───┬──┬──┬──┬──┘
     │  │  │  │
     ▼  ▼  ▼  ▼
 ┌────┐┌────┐┌────┐┌────┐
-│Sec ││Perf││Logic││Style│  ← Specialists (run in parallel)
+│Sec ││Perf││Logic││Style│  ← Specialists (Standard tier + language hints)
 └──┬─┘└──┬─┘└──┬─┘└──┬─┘
    │     │     │     │
    └─────┴─────┴─────┘
          │
          ▼
-    ┌── Critic ──┐
+  ┌─ Deterministic ─┐
+  │ Verifier         │     ← NEW: mechanical check (no LLM)
+  │ • File in diff?  │     Rejects hallucinated findings
+  │ • Line in hunk?  │     at zero cost before Critic
+  │ • Snippet match? │
+  └───────┬──────────┘
+          │
+          ▼
+    ┌── Critic ──┐         (Strong model tier)
     │ Verifies   │
     │ findings   │
     │ Scores     │
@@ -147,11 +156,19 @@ PR/MR Opened or Pushed
     └─────┬──────┘
           │
           ▼
-   ┌─ Synthesizer ─┐
+   ┌─ Synthesizer ─┐      (Strong model tier)
    │ Formats final  │
    │ review with    │
    │ diagrams &     │
    │ badges         │
+   └───────┬────────┘
+           │
+           ▼
+   ┌── Evaluator ──┐       ← NEW: review-of-review
+   │ Scores quality │      Traceability, Accuracy,
+   │ 0-100 score    │      Suggestions, Completeness
+   │ Score < 60?    │
+   │  → Regenerate  │
    └────────────────┘
 ```
 
@@ -164,7 +181,7 @@ PR/MR Opened or Pushed
 
 ---
 
-## 5. ALL FEATURES (22 Total)
+## 5. ALL FEATURES (32 Total)
 
 ### Core Review Features
 1. **Multi-agent AI review** — 4 specialist agents + critic + synthesizer
@@ -181,30 +198,36 @@ PR/MR Opened or Pushed
 10. **PR complexity score** — 0-100 score based on lines, files, patterns
 11. **Mermaid diagrams** — architecture visualization in reviews
 
+### Review Quality Features (NEW)
+12. **Deterministic pre-filter** — mechanically verifies findings reference real files, lines, and snippets in the diff before LLM Critic; eliminates hallucinations at zero cost
+13. **Self-evaluation & regeneration** — Evaluator agent scores final review (0-100) on traceability, accuracy, suggestion quality, completeness; auto-regenerates if score < 60
+14. **Role-specific model routing** — Strong tier (Critic/Synthesizer), Standard tier (Specialists), Light tier (Planner) with per-tier fallback chains
+15. **Language-specific knowledge injection** — TypeScript, JavaScript, Python, Java, Go, Rust patterns injected into specialist prompts (security, performance, logic)
+
 ### Integration Features
-12. **GitHub Check Runs** — pass/fail/neutral status directly on PRs
-13. **Auto-labels** — critical-issues, needs-fix, security-concern, ai-approved
-14. **Slack notifications** — alerts for critical/high severity findings
-15. **Multi-provider rotation** — Groq (1-10 keys) → OpenRouter → Gemini with auto-fallback
+16. **GitHub Check Runs** — pass/fail/neutral status directly on PRs
+17. **Auto-labels** — critical-issues, needs-fix, security-concern, ai-approved
+18. **Slack notifications** — alerts for critical/high severity findings
+19. **Multi-provider rotation** — Groq (1-10 keys) → OpenRouter → Gemini with auto-fallback
 
 ### Multi-Provider Support
-16. **GitHub integration** — full OAuth + webhooks + PR comments + check runs + labels
-17. **GitLab integration** — OAuth + webhooks + MR comments + labels
-18. **Bitbucket integration** — webhooks + PR comments
-19. **Git Provider Abstraction** — unified interface for all providers
+20. **GitHub integration** — full OAuth + webhooks + PR comments + check runs + labels
+21. **GitLab integration** — OAuth + webhooks + MR comments + labels
+22. **Bitbucket integration** — webhooks + PR comments
+23. **Git Provider Abstraction** — unified interface for all providers
 
 ### VS Code Extension
-20. **Sidebar panel** — view all review findings in VS Code
-21. **Review Current File** — instant AI review of the current file
-22. **Review Staged Changes** — review git staged diff before committing
+24. **Sidebar panel** — view all review findings in VS Code
+25. **Review Current File** — instant AI review of the current file
+26. **Review Staged Changes** — review git staged diff before committing
 
 ### Configuration & Monitoring
-23. **.codelax.yaml config** — agents, ignore, minSeverity, maxInlineComments, instructions
-24. **Review status tracking** — pending → in_progress → completed/failed/skipped
-25. **Duration tracking** — durationMs, startedAt, completedAt
-26. **Analytics dashboard** — charts, stats, trends
-27. **Re-trigger button** — manually re-run review from UI
-28. **Teams support** — team-based repo management with roles
+27. **.codelax.yaml config** — agents, ignore, minSeverity, maxInlineComments, instructions
+28. **Review status tracking** — pending → in_progress → completed/failed/skipped
+29. **Duration tracking** — durationMs, startedAt, completedAt
+30. **Analytics dashboard** — charts, stats, trends
+31. **Re-trigger button** — manually re-run review from UI
+32. **Teams support** — team-based repo management with roles
 
 ---
 
