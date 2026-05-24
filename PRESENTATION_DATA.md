@@ -433,14 +433,17 @@ CodeLax/
 │   │   │   ├── style.ts
 │   │   │   ├── critic.ts
 │   │   │   ├── synthesizer.ts
+│   │   │   ├── evaluator.ts       # NEW: review quality scorer + regeneration
 │   │   │   └── types.ts
 │   │   └── lib/
-│   │       ├── git-provider.ts   # Multi-provider abstraction
-│   │       ├── model-provider.ts # AI model rotation
-│   │       ├── rag.ts            # RAG pipeline (Pinecone)
-│   │       ├── diff-parser.ts    # Diff parsing + complexity
-│   │       ├── config.ts         # .codelax.yaml parser
-│   │       └── notifications.ts  # Slack integration
+│   │       ├── git-provider.ts    # Multi-provider abstraction
+│   │       ├── model-provider.ts  # AI model rotation + role-specific tiers
+│   │       ├── finding-verifier.ts # NEW: deterministic pre-filter
+│   │       ├── language-hints.ts  # NEW: language-specific patterns
+│   │       ├── rag.ts             # RAG pipeline (Pinecone)
+│   │       ├── diff-parser.ts     # Diff parsing + complexity
+│   │       ├── config.ts          # .codelax.yaml parser
+│   │       └── notifications.ts   # Slack integration
 │   ├── auth/                     # Auth UI components
 │   ├── repository/               # Repo actions & hooks
 │   ├── github/                   # GitHub-specific utilities
@@ -467,6 +470,7 @@ CodeLax/
 │   │   ├── api.ts                # API client for CodeLax server
 │   │   ├── diagnostics.ts        # VS Code diagnostics integration
 │   │   ├── codelens.ts           # CodeLens integration
+│   │   ├── quickfix.ts           # Quick fix code actions
 │   │   └── statusbar.ts          # Status bar indicator
 │   └── package.json              # Extension manifest
 │
@@ -487,6 +491,10 @@ CodeLax/
 | Self-hostable | ✅ Open source, Vercel deploy | SaaS only |
 | Check Runs | ✅ Pass/fail on PRs | Comments only |
 | Incremental reviews | ✅ Only new commits | Full re-review |
+| Hallucination filter | ✅ Deterministic verifier pre-LLM | None |
+| Self-evaluation | ✅ Auto-scores & regenerates reviews | No quality check |
+| Language-aware | ✅ Per-language patterns (6 languages) | Generic prompts |
+| Model routing | ✅ Role-specific tiers (strong/standard/light) | Single model |
 | Custom config | ✅ .codelax.yaml | Limited settings |
 | Team collaboration | ✅ Teams, roles, invites | Per-user |
 
