@@ -11,7 +11,9 @@ import { runLogicAgent } from "@/module/ai/agents/logic";
 import { runStyleAgent } from "@/module/ai/agents/style";
 import { runCritic } from "@/module/ai/agents/critic";
 import { runSynthesizer } from "@/module/ai/agents/synthesizer";
+import { runEvaluator } from "@/module/ai/agents/evaluator";
 import type { SpecialistReport, RejectionPattern } from "@/module/ai/agents/types";
+import { partitionFindings } from "@/module/ai/lib/finding-verifier";
 import { fetchRepoConfig, type CodeLaxConfig } from "@/module/ai/lib/config";
 import { sendSlackNotification } from "@/module/ai/lib/notifications";
 
@@ -256,9 +258,9 @@ export const generateReviewMultiAgent = inngest.createFunction(
       const instructions = [...langContext, ...(config.instructions || [])];
       const hints = plan.agentFocusHints || {};
       const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
-        security: () => runSecurityAgent(processedDiff, context, title, instructions, hints.security, previousRejectionPatterns["security"]),
-        performance: () => runPerformanceAgent(processedDiff, context, title, instructions, hints.performance, previousRejectionPatterns["performance"]),
-        logic: () => runLogicAgent(processedDiff, context, title, instructions, hints.logic, previousRejectionPatterns["logic"]),
+        security: () => runSecurityAgent(processedDiff, context, title, instructions, hints.security, previousRejectionPatterns["security"], languages),
+        performance: () => runPerformanceAgent(processedDiff, context, title, instructions, hints.performance, previousRejectionPatterns["performance"], languages),
+        logic: () => runLogicAgent(processedDiff, context, title, instructions, hints.logic, previousRejectionPatterns["logic"], languages),
         style: () => runStyleAgent(processedDiff, context, title, instructions, hints.style, previousRejectionPatterns["style"]),
       };
 
@@ -283,11 +285,42 @@ export const generateReviewMultiAgent = inngest.createFunction(
       });
     });
 
+    // Step 5.5: Deterministic pre-filter — reject hallucinated findings before LLM Critic
+    await updateStep(reviewRecord?.id, "verifying");
+    const { preFilteredReports, deterministicRejections } = await step.run("deterministic-verify", async () => {
+      const allFindings = reports.flatMap((r) =>
+        r.findings.map((f) => ({ ...f, agentName: r.agentName }))
+      );
+
+      if (allFindings.length === 0) {
+        return { preFilteredReports: reports, deterministicRejections: [] as { finding: typeof allFindings[0]; reason: string }[] };
+      }
+
+      const { verified, rejected } = partitionFindings(allFindings, diff);
+      console.log(`[review] Deterministic pre-filter: ${verified.length} passed, ${rejected.length} rejected out of ${allFindings.length}`);
+
+      // Rebuild reports with only verified findings
+      const filteredReports = reports.map((r) => ({
+        ...r,
+        findings: verified.filter((f) => f.agentName === r.agentName).map(({ agentName: _a, ...rest }) => rest),
+      }));
+
+      return { preFilteredReports: filteredReports, deterministicRejections: rejected };
+    });
+
     // Step 6: Critic Agent — deduplicates and filters findings
     await updateStep(reviewRecord?.id, "critic");
     const criticReport = await step.run("critic", () =>
-      runCritic(reports, rawProcessedDiff ?? processedDiff, title)
+      runCritic(preFilteredReports as unknown as SpecialistReport[], rawProcessedDiff ?? processedDiff, title)
     );
+
+    // Merge deterministic rejections into critic's rejection list
+    if (deterministicRejections.length > 0) {
+      criticReport.rejectedFindings = [
+        ...criticReport.rejectedFindings,
+        ...deterministicRejections,
+      ];
+    }
 
     // Persist rejection patterns for next run's feedback loop
     if (reviewRecord && criticReport.rejectionPatterns?.length) {
@@ -313,10 +346,43 @@ export const generateReviewMultiAgent = inngest.createFunction(
     // Step 7: Synthesizer Agent — produces final markdown review
     const complexityBadge = `> **Complexity:** ${complexity.score}/100 (${complexity.level}) | **Files:** ${complexity.breakdown.files} | **Changes:** +${complexity.breakdown.additions}/-${complexity.breakdown.deletions} | **Hotspots:** ${complexity.breakdown.hotspotFiles}\n\n`;
     const reviewPrefix = isIncremental ? "## 🔄 Incremental Review (new commits only)\n\n" : "";
-    const finalReview = await step.run("synthesizer", async () => {
+    let finalReview = await step.run("synthesizer", async () => {
       const review = await runSynthesizer(criticReport, processedDiff, title, description, filesSummary);
       return reviewPrefix + complexityBadge + review;
     });
+
+    // Step 7.5: Self-evaluation — score the review and regenerate if quality is too low
+    await updateStep(reviewRecord?.id, "evaluating");
+    const evaluation = await step.run("evaluate-review", async () => {
+      return await runEvaluator(finalReview, rawProcessedDiff ?? processedDiff, criticReport, title);
+    });
+
+    // If evaluation score is below threshold, regenerate once with feedback
+    if (evaluation.shouldRegenerate && evaluation.regenerationHints.length > 0) {
+      console.log(`[review] Evaluation score ${evaluation.score}/100 below threshold — regenerating with feedback`);
+      await updateStep(reviewRecord?.id, "regenerating");
+      finalReview = await step.run("synthesizer-retry", async () => {
+        const feedback = [
+          `IMPORTANT: The previous review scored ${evaluation.score}/100 and had these problems:`,
+          ...evaluation.problems.map((p) => `- ${p}`),
+          ...(evaluation.missedIssues.length > 0 ? [
+            `\nMissed issues the evaluator found in the diff:`,
+            ...evaluation.missedIssues.map((m) => `- ${m}`),
+          ] : []),
+          `\nRegeneration instructions:`,
+          ...evaluation.regenerationHints.map((h) => `- ${h}`),
+        ].join("\n");
+
+        const review = await runSynthesizer(
+          criticReport, processedDiff, title,
+          description + "\n\n--- QUALITY FEEDBACK ---\n" + feedback,
+          filesSummary
+        );
+        return reviewPrefix + complexityBadge + review;
+      });
+    }
+
+    console.log(`[review] Final evaluation: score=${evaluation.score}/100, traceability=${evaluation.traceability}, accuracy=${evaluation.accuracy}, suggestions=${evaluation.suggestionQuality}, completeness=${evaluation.completeness}`);
 
     await updateStep(reviewRecord?.id, "posting");
     // Step 8: Post review with inline comments, auto-labels, check run, save to DB
@@ -381,7 +447,7 @@ export const generateReviewMultiAgent = inngest.createFunction(
             title: findingsCount === 0
               ? "All clear — no issues found"
               : `${findingsCount} finding${findingsCount > 1 ? "s" : ""} (${criticReport.overallRisk} risk)`,
-            summary: `**Risk Level:** ${criticReport.overallRisk.toUpperCase()}\n**Findings:** ${findingsCount}\n**Duration:** ${Math.round(durationMs / 1000)}s\n**Complexity:** ${complexity.score}/100 (${complexity.level})`,
+            summary: `**Risk Level:** ${criticReport.overallRisk.toUpperCase()}\n**Findings:** ${findingsCount}\n**Duration:** ${Math.round(durationMs / 1000)}s\n**Complexity:** ${complexity.score}/100 (${complexity.level})\n**Review Quality:** ${evaluation.score}/100`,
           });
         } catch (e) {
           console.error("Failed to update check run:", e);
@@ -514,6 +580,13 @@ export const generateReviewMultiAgent = inngest.createFunction(
       });
     });
 
-    return { success: true, findingsCount: criticReport.verifiedFindings.length, durationMs };
+    return {
+      success: true,
+      findingsCount: criticReport.verifiedFindings.length,
+      durationMs,
+      qualityScore: evaluation.score,
+      deterministicRejections: deterministicRejections.length,
+      wasRegenerated: evaluation.shouldRegenerate,
+    };
   }
 );

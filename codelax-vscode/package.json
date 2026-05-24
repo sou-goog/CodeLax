@@ -57,6 +57,16 @@
       {
         "command": "codelax.jumpToFinding",
         "title": "CodeLax: Jump to Finding"
+      },
+      {
+        "command": "codelax.applyFix",
+        "title": "CodeLax: Apply Suggested Fix",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "codelax.reviewSelection",
+        "title": "CodeLax: Review Selection",
+        "icon": "$(sparkle)"
       }
     ],
     "menus": {
@@ -70,6 +80,13 @@
           "command": "codelax.configure",
           "when": "view == codelax.sidebar",
           "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "codelax.reviewSelection",
+          "when": "editorHasSelection",
+          "group": "codelax"
         }
       ]
     },

@@ -7,11 +7,18 @@ import { runStyleAgent } from "@/module/ai/agents/style";
 import { runCritic } from "@/module/ai/agents/critic";
 import { runPlanner } from "@/module/ai/agents/planner";
 import { SpecialistReport } from "@/module/ai/agents/types";
+import { partitionFindings } from "@/module/ai/lib/finding-verifier";
 
 async function getUserFromApiKey(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
   const key = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
   if (!key) return null;
+
+  // Dev bypass: skip DB lookup when running locally
+  if (process.env.NODE_ENV !== "production" && key === "dev-test-key") {
+    return { id: "dev", name: "Dev User", email: "dev@localhost" };
+  }
+
   return prisma.user.findUnique({ where: { extensionApiKey: key } });
 }
 
@@ -81,14 +88,17 @@ export async function POST(req: NextRequest) {
         ]
       : [];
 
-    // Run specialist agents in parallel
+    // Determine languages for language-specific hints
+    const languages = language ? [language] : plan.languages ?? [];
+
+    // Run specialist agents in parallel (with language-specific hints)
     const agentRunners: Record<string, () => Promise<SpecialistReport>> = {
       security: () =>
-        runSecurityAgent(reviewDiff, [], reviewTitle, langContext, hints.security),
+        runSecurityAgent(reviewDiff, [], reviewTitle, langContext, hints.security, undefined, languages),
       performance: () =>
-        runPerformanceAgent(reviewDiff, [], reviewTitle, langContext, hints.performance),
+        runPerformanceAgent(reviewDiff, [], reviewTitle, langContext, hints.performance, undefined, languages),
       logic: () =>
-        runLogicAgent(reviewDiff, [], reviewTitle, langContext, hints.logic),
+        runLogicAgent(reviewDiff, [], reviewTitle, langContext, hints.logic, undefined, languages),
       style: () =>
         runStyleAgent(reviewDiff, [], reviewTitle, langContext, hints.style),
     };
@@ -108,8 +118,28 @@ export async function POST(req: NextRequest) {
       } as SpecialistReport;
     });
 
+    // Deterministic pre-filter: only apply when a real git diff is provided.
+    // For raw code reviews (no diff), the pseudo-diff paths won't match agent output,
+    // so we skip the verifier and let the Critic handle quality filtering.
+    let filteredReports = reports;
+    let deterministicRejected: { finding: any; reason: string }[] = [];
+
+    if (diff) {
+      const allFindings = reports.flatMap((r) =>
+        r.findings.map((f) => ({ ...f, agentName: r.agentName }))
+      );
+      if (allFindings.length > 0) {
+        const { verified, rejected } = partitionFindings(allFindings, reviewDiff);
+        deterministicRejected = rejected;
+        filteredReports = reports.map((r) => ({
+          ...r,
+          findings: verified.filter((f) => f.agentName === r.agentName).map(({ agentName: _a, ...rest }) => rest),
+        }));
+      }
+    }
+
     // Run critic to deduplicate and verify
-    const criticReport = await runCritic(reports, reviewDiff, reviewTitle);
+    const criticReport = await runCritic(filteredReports, reviewDiff, reviewTitle);
 
     // Return findings directly — no DB save needed for local reviews
     return NextResponse.json({
@@ -124,7 +154,8 @@ export async function POST(req: NextRequest) {
         suggestion: f.suggestion,
       })),
       overallRisk: criticReport.overallRisk,
-      rejected: criticReport.rejectedFindings?.length ?? 0,
+      rejected: (criticReport.rejectedFindings?.length ?? 0) + deterministicRejected.length,
+      deterministicRejections: deterministicRejected.length,
       agents: activeAgents,
     });
   } catch (err) {

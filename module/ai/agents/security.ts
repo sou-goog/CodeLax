@@ -1,5 +1,6 @@
 import { SpecialistReport, RejectionPattern, parseJsonFromText } from "./types";
 import { generateTextWithFallback, getModel } from "@/module/ai/lib/model-provider";
+import { getLanguageHints } from "@/module/ai/lib/language-hints";
 
 export async function runSecurityAgent(
   diff: string,
@@ -7,7 +8,8 @@ export async function runSecurityAgent(
   title: string,
   customInstructions?: string[],
   focusHint?: string,
-  doNotRules?: RejectionPattern[]
+  doNotRules?: RejectionPattern[],
+  languages?: string[]
 ): Promise<SpecialistReport> {
   const doNotSection = doNotRules?.length
     ? `\nDO NOT REPORT (learned from past false positives):\n${doNotRules.map((r) => `- ${r.rule}`).join("\n")}`
@@ -39,7 +41,7 @@ Rules:
 - If no security issues exist, return an empty findings array
 - If the diff introduces a change that interacts with existing code in the context, trace the full call path before concluding whether a vulnerability exists
 ${doNotSection}
-
+${getLanguageHints("security", languages ?? [])}
 --- EXAMPLE 1 (critical finding) ---
 {
   "agentName": "security",

@@ -6,6 +6,11 @@ import { generateText } from "ai";
 /**
  * Multi-provider model rotation with automatic fallback.
  * 
+ * Role-specific model tiers:
+ *   - critic / synthesizer: strongest available models (reasoning-heavy tasks)
+ *   - specialist: standard quality models (bulk analysis)
+ *   - planner: lightweight models (small JSON output)
+ * 
  * Priority order (best quality first):
  *   1. Groq llama-3.3-70b-versatile (100K TPD per key — supports multiple keys)
  *   2. OpenRouter google/gemini-2.0-flash-exp:free (free, excellent quality)
@@ -24,63 +29,92 @@ interface ProviderEntry {
   model: ReturnType<typeof createGroq> extends (id: string) => infer R ? R : any;
 }
 
-function buildProviderChain(): ProviderEntry[] {
-  const chain: ProviderEntry[] = [];
+type ModelTier = "strong" | "standard" | "light";
 
-  // 1. Groq keys (supports comma-separated AND separate env vars: GROQ_API_KEY, GROQ_API_KEY_2, GROQ_API_KEY_3...)
+function buildProviderChain(): Record<ModelTier, ProviderEntry[]> {
+  const strong: ProviderEntry[] = [];
+  const standard: ProviderEntry[] = [];
+  const light: ProviderEntry[] = [];
+
+  // --- Collect Groq keys ---
   const groqKeys: string[] = [];
-
-  // Collect from GROQ_API_KEY (may be comma-separated)
   if (process.env.GROQ_API_KEY) {
     groqKeys.push(...process.env.GROQ_API_KEY.split(",").map((k) => k.trim()).filter(Boolean));
   }
-  // Collect from GROQ_API_KEY_2, GROQ_API_KEY_3, etc.
   for (let n = 2; n <= 10; n++) {
     const key = process.env[`GROQ_API_KEY_${n}`];
     if (key) groqKeys.push(key.trim());
   }
 
+  // Groq 70B → strong + standard + light tier
   for (let i = 0; i < groqKeys.length; i++) {
     const groq = createGroq({ apiKey: groqKeys[i] });
-    chain.push({
-      name: `groq-${i + 1}`,
+    const entry: ProviderEntry = {
+      name: `groq-70b-${i + 1}`,
       model: groq("llama-3.3-70b-versatile") as any,
-    });
+    };
+    strong.push(entry);
+    standard.push(entry);
+    light.push(entry);
   }
 
-  // 2. OpenRouter (free Gemini flash)
+  // OpenRouter (strong quality free model)
   if (process.env.OPENROUTER_API_KEY) {
     const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
-    chain.push({
+    const entry: ProviderEntry = {
       name: "openrouter-gemini-free",
       model: openrouter("google/gemini-2.0-flash-exp:free") as any,
-    });
+    };
+    strong.push(entry);
+    standard.push(entry);
   }
 
-  // 3. Google Gemini (final fallback)
+  // Google Gemini Flash (standard + light)
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    chain.push({
+    standard.push({
+      name: "google-gemini-flash",
+      model: google("gemini-2.0-flash-lite") as any,
+    });
+    // Light tier: use the same lite model — fast and cheap for planner
+    light.push({
       name: "google-gemini-lite",
       model: google("gemini-2.0-flash-lite") as any,
     });
   }
 
-  if (chain.length === 0) {
+  // Ensure every tier has at least the full chain as fallback
+  const allEntries = [...strong, ...standard, ...light];
+  if (allEntries.length === 0) {
     throw new Error("No AI provider API keys configured. Set at least GROQ_API_KEY.");
   }
 
-  console.log(`[model-provider] Chain: ${chain.map((p) => p.name).join(" → ")}`);
-  return chain;
+  // Fill empty tiers with whatever is available
+  if (strong.length === 0) strong.push(...standard, ...light);
+  if (standard.length === 0) standard.push(...strong, ...light);
+  if (light.length === 0) light.push(...standard, ...strong);
+
+  console.log(`[model-provider] Strong: ${strong.map((p) => p.name).join(" → ")}`);
+  console.log(`[model-provider] Standard: ${standard.map((p) => p.name).join(" → ")}`);
+  console.log(`[model-provider] Light: ${light.map((p) => p.name).join(" → ")}`);
+  return { strong, standard, light };
 }
 
-let providerChain: ProviderEntry[] | null = null;
+let providerChains: Record<ModelTier, ProviderEntry[]> | null = null;
 
-function getChain(): ProviderEntry[] {
-  if (!providerChain) {
-    providerChain = buildProviderChain();
+function getChain(tier: ModelTier = "standard"): ProviderEntry[] {
+  if (!providerChains) {
+    providerChains = buildProviderChain();
   }
-  return providerChain;
+  return providerChains[tier];
 }
+
+// Role → tier mapping
+const ROLE_TIER: Record<string, ModelTier> = {
+  critic: "strong",
+  synthesizer: "strong",
+  specialist: "standard",
+  planner: "light",
+};
 
 // Track which providers are temporarily exhausted (reset after 1 hour)
 const exhaustedUntil = new Map<string, number>();
@@ -115,10 +149,12 @@ function isRateLimitError(error: unknown): boolean {
 }
 
 /**
- * Returns the first available model from the provider chain.
+ * Returns the first available model from the provider chain for the given role.
+ * Critic and Synthesizer get the strongest models; Planner gets lightweight.
  */
-export function getModel(_role: "specialist" | "planner" | "critic" | "synthesizer") {
-  const chain = getChain();
+export function getModel(role: "specialist" | "planner" | "critic" | "synthesizer") {
+  const tier = ROLE_TIER[role] ?? "standard";
+  const chain = getChain(tier);
   for (const entry of chain) {
     if (!isExhausted(entry.name)) {
       return entry.model;
@@ -136,7 +172,15 @@ export function getModel(_role: "specialist" | "planner" | "critic" | "synthesiz
 export async function generateTextWithFallback(
   options: Parameters<typeof generateText>[0]
 ): Promise<string> {
-  const chain = getChain();
+  // Determine tier from the model being passed in — find which chain it belongs to
+  const allChains = providerChains ?? buildProviderChain();
+  let chain = allChains.standard;
+  for (const [, tierChain] of Object.entries(allChains)) {
+    if (tierChain.some((p) => p.model === options.model)) {
+      chain = tierChain;
+      break;
+    }
+  }
   const availableProviders = chain.filter((p) => !isExhausted(p.name));
   const providers = availableProviders.length > 0 ? availableProviders : chain;
 

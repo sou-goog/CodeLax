@@ -3,6 +3,7 @@ import * as path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { fetchReviews, fetchRepos, isConfigured, localReview, Review, ReviewFinding } from "./api";
+import { QuickFixProvider } from "./quickfix";
 import { DiagnosticsProvider } from "./diagnostics";
 import { CodeLensProvider } from "./codelens";
 import { SidebarProvider } from "./sidebar";
@@ -37,6 +38,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
   const diagnostics = new DiagnosticsProvider(ctx);
   const codelens   = new CodeLensProvider(ctx);
   const statusBar  = new StatusBarItem(ctx);
+  const quickfix   = new QuickFixProvider(ctx);
 
   ctx.subscriptions.push(
     vscode.window.registerWebviewViewProvider("codelax.sidebar", sidebar, {
@@ -82,6 +84,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
       sidebar.setReviews(reviews, `${owner}/${repo}`);
       diagnostics.update(reviews);
       codelens.update(reviews);
+      quickfix.update(reviews);
       statusBar.setReviews(reviews);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -256,6 +259,106 @@ export async function activate(ctx: vscode.ExtensionContext) {
 
             vscode.window.showInformationMessage(
               `CodeLax: Found ${result.findings.length} issue(s) in staged changes (${result.overallRisk} risk)`
+            );
+          } catch (err) {
+            vscode.window.showErrorMessage(`CodeLax: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      );
+    }),
+
+    vscode.commands.registerCommand("codelax.applyFix", async (finding: ReviewFinding) => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || !finding.suggestion || !finding.startLine) {
+        vscode.window.showWarningMessage("No suggestion available for this finding.");
+        return;
+      }
+
+      const line = Math.max(0, finding.startLine - 1);
+      const endLine = finding.endLine ? Math.max(line, finding.endLine - 1) : line;
+      const range = new vscode.Range(line, 0, endLine, editor.document.lineAt(endLine).text.length);
+
+      const applied = await editor.edit((editBuilder) => {
+        editBuilder.replace(range, finding.suggestion);
+      });
+
+      if (applied) {
+        vscode.window.showInformationMessage(`CodeLax: Fix applied for "${finding.title}"`);
+      } else {
+        vscode.window.showErrorMessage("CodeLax: Failed to apply fix.");
+      }
+    }),
+
+    vscode.commands.registerCommand("codelax.reviewSelection", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage("No active editor.");
+        return;
+      }
+
+      const selection = editor.selection;
+      if (selection.isEmpty) {
+        vscode.window.showWarningMessage("Select some code to review.");
+        return;
+      }
+
+      const selectedText = editor.document.getText(selection);
+      const fileName = vscode.workspace.asRelativePath(editor.document.uri, false);
+      const startLine = selection.start.line + 1;
+      const langMap: Record<string, string> = {
+        typescript: "typescript", javascript: "javascript", python: "python",
+        java: "java", go: "go", rust: "rust", csharp: "c#", cpp: "c++",
+        c: "c", ruby: "ruby", php: "php", swift: "swift", kotlin: "kotlin",
+      };
+      const language = langMap[editor.document.languageId] ?? editor.document.languageId;
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: "CodeLax: Reviewing selection…", cancellable: false },
+        async () => {
+          try {
+            const result = await localReview({
+              code: selectedText,
+              fileName: `${fileName}:${startLine}`,
+              language,
+              title: `Review selection in ${fileName}`,
+            });
+
+            if (result.findings.length === 0) {
+              vscode.window.showInformationMessage("CodeLax: Selection looks clean! 🎉");
+              return;
+            }
+
+            const pseudoReview: Review = {
+              id: "selection-" + Date.now(),
+              prNumber: 0,
+              prTitle: `Selection: ${fileName}:${startLine}`,
+              prUrl: "",
+              status: "completed",
+              currentStep: "done",
+              durationMs: 0,
+              createdAt: new Date().toISOString(),
+              completedAt: new Date().toISOString(),
+              findings: result.findings.map((f, i) => ({
+                id: `selection-${i}`,
+                agentName: f.agentName,
+                severity: f.severity,
+                confidence: f.confidence,
+                file: f.file || fileName,
+                startLine: f.startLine ? f.startLine + startLine - 1 : startLine,
+                endLine: f.startLine ? f.startLine + startLine - 1 : startLine,
+                title: f.title,
+                description: f.description,
+                suggestion: f.suggestion,
+              })),
+            };
+
+            diagnostics.update([pseudoReview]);
+            codelens.update([pseudoReview]);
+            statusBar.setReviews([pseudoReview]);
+            sidebar.setReviews([pseudoReview], `selection/${fileName}`);
+
+            vscode.window.showInformationMessage(
+              `CodeLax: Found ${result.findings.length} issue(s) in selection (${result.overallRisk} risk)`
             );
           } catch (err) {
             vscode.window.showErrorMessage(`CodeLax: ${err instanceof Error ? err.message : String(err)}`);
